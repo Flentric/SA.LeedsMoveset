@@ -7,6 +7,11 @@ that supports **fastman92 add-on weapons** — matched by weapon type *or* model
 ID. The "eASIer" memory patches are folded in, so no separate patcher plugin is
 needed.
 
+<p align="center">
+  <img src="assets/preview1.gif" width="42%" />
+  <img src="assets/preview2.gif" width="42%" />
+</p>
+
 Built with [plugin-sdk](https://github.com/DK22Pac/plugin-sdk). Targets
 **GTA SA 1.0 US (HOODLUM)**.
 

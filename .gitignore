@@ -1,0 +1,11 @@
+# Visual Studio / MSBuild build output
+bin/
+obj/
+.vs/
+*.user
+*.suo
+*.pdb
+*.ilk
+*.lib
+*.exp
+*.log

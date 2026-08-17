@@ -18,9 +18,7 @@ using namespace plugin;
 static const uintptr_t WRITE_ADDR = 0x609A4E;
 static const int WALK_GROUP_OFFSET = 0x4D4;
 
-// re-blends the ped's walk/run/sprint slots from the 0x4D4 group. the game only
-// reblends when its own computed group differs from ours; we call it ourselves so
-// the forced jog group is applied deterministically the frame we set it.
+// reblends the walk/run/sprint slots from the 0x4D4 group
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
@@ -117,8 +115,7 @@ public:
 
         CPlayerPed* ped = FindPlayerPed();
         if (!ped) return;
-        // gate on actual occupancy (bInVehicle), NOT m_pVehicle - that pointer lingers
-        // after you exit, which used to disable the mod permanently after any car.
+        // bInVehicle, not m_pVehicle (that lingers after you exit a car)
         if (ped->bInVehicle) { SetPatched(false); return; }
 
         int type = (int)ped->GetWeapon()->m_eWeaponType;

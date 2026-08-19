@@ -42,7 +42,9 @@ static const AnimPatch g_animPatches[] = {
 
 class StoriesSprinting {
 public:
-    static std::set<int> jogWeapons;
+    static std::set<int> jogWeapons;      // force-jog (priority ON), by weapon type or model id
+    static std::set<int> noJogWeapons;    // force-no-jog (priority OFF), overrides everything
+    static std::set<int> jogSlots;        // weapon.dat slots that jog by default (fallback)
     static std::set<int> fireExtWeapons;
     static bool noFat;
     static bool noMuscle;
@@ -84,6 +86,15 @@ public:
             "2,8,10,12,14,15,22,23,24,26,28,29,32,43", buf, sizeof(buf), f);
         ParseIds(buf, jogWeapons);
 
+        // Fallback: any weapon whose weapon.dat slot is listed here jogs unless overridden above.
+        // Slots: 0 unarmed, 1 melee, 2 handguns, 3 shotguns, 4 SMGs, 5 assault, 6 rifles, 7 heavy,
+        // 8 thrown, 9 special, 10 gifts.
+        GetPrivateProfileStringA("JogSlots", "Slots", "2,4", buf, sizeof(buf), f);
+        ParseIds(buf, jogSlots);
+
+        GetPrivateProfileStringA("NoJogWeapons", "Weapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, noJogWeapons);
+
         GetPrivateProfileStringA("FireExtWeapons", "Weapons", "42", buf, sizeof(buf), f);
         ParseIds(buf, fireExtWeapons);
     }
@@ -119,13 +130,19 @@ public:
         if (ped->bInVehicle) { SetPatched(false); return; }
 
         int type = (int)ped->GetWeapon()->m_eWeaponType;
-        int model = -1;
-        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0))
+        int model = -1, slot = -1;
+        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0)) {
             model = wi->m_nModelId;
+            slot = (int)wi->m_nSlot;
+        }
 
+        // INI wins, weapon.dat slot is the fallback:
+        //   NoJogWeapons (off) > JogWeapons (on) > FireExtWeapons > JogSlots fallback > nothing.
         int base = -1;
-        if (InList(jogWeapons, type, model)) base = JOG_BASE;
+        if (InList(noJogWeapons, type, model)) base = -1;
+        else if (InList(jogWeapons, type, model)) base = JOG_BASE;
         else if (fireExtFix && InList(fireExtWeapons, type, model)) base = FIREEXT_BASE;
+        else if (slot >= 0 && jogSlots.count(slot)) base = JOG_BASE;
 
         if (base < 0) { SetPatched(false); return; }
 
@@ -145,6 +162,8 @@ public:
 };
 
 std::set<int> StoriesSprinting::jogWeapons;
+std::set<int> StoriesSprinting::noJogWeapons;
+std::set<int> StoriesSprinting::jogSlots;
 std::set<int> StoriesSprinting::fireExtWeapons;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;

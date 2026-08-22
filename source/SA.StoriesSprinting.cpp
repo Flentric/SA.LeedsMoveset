@@ -225,16 +225,19 @@ public:
                 slot = (int)wi->m_nSlot;
             }
 
-            //   RocketWeapons > RifleWeapons > BatWeapons > HeavyWeapons >
-            //   [combo] JogWeapons > [combo] FireExtWeapons > RifleSlots fallback >
+            //   RocketWeapons > RifleWeapons > HeavyWeapons > [combo] BatWeapons +
+            //   JogWeapons > [combo] FireExtWeapons > RifleSlots fallback >
             //   [combo] JogSlots fallback > the ped model's own walkstyle.
+            // Every JOG_BASE path is gated on the combo: group 63's run slot is the
+            // jog, so handing a ped that group is the combo whether it came from
+            // BatWeapons or JogWeapons.
             int group = -1;
             if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
             else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
-            else if (InList(aiBatWeapons, type, model)) group = JOG_BASE;
             else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
             else if (aiCombo && !InList(noJogWeapons, type, model)
-                && InList(jogWeapons, type, model)) group = JOG_BASE;
+                && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
+                group = JOG_BASE;
             else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
             else if (slot >= 0 && aiRifleSlots.count(slot)) group = RIFLE_BASE;
             else if (aiCombo && slot >= 0 && jogSlots.count(slot)

@@ -5,7 +5,7 @@ script. It lets you sprint with heavy weapons and use the one-handed jog run
 animation, with a **configurable weapon list** (edit `SA.StoriesSprinting.ini`)
 that supports **fastman92 add-on weapons** — matched by weapon type *or* model
 ID. The "eASIer" memory patches are folded in, so no separate patcher plugin is
-needed.
+needed, and **AI Walkstyles Fix** is built in as an optional setting.
 
 <p align="center">
   <img src="assets/preview1.gif" width="42%" />
@@ -21,11 +21,24 @@ Drop `SA.StoriesSprinting.asi` and `SA.StoriesSprinting.ini` into your game
 (with an ASI loader). Keep the rest of the animation mod — the `.ifp`
 animations and the weapon.dat anim-group edits — in place.
 
+## AI Weapon Walkstyles
+
+The mod also absorbs **AI Walkstyles Fix** — peds get the same weapon walkstyles
+the player does, so they carry a rifle or a rocket launcher properly instead of
+holding it one-handed. Set `AIWeaponWalkstyles=1` to turn it on (off by default);
+the weapon lists live under `[AIWalkstyles]`, with a `RifleSlots` fallback so
+add-on long guns are covered without listing them.
+
+`AIStoriesSprintingCombo=1` additionally lets peds use the one-handed jog from
+`[JogWeapons]` (and the fire-extinguisher walkstyle from `[FireExtWeapons]`).
+Off by default. The fire-extinguisher fix itself is the mod's existing
+`FireExtinguisherWalkstyleFix` setting — there is no second copy of it.
+
 ## Config
 
-`[JogWeapons]` and `[FireExtWeapons]` in `SA.StoriesSprinting.ini` take
-comma/space-separated weapon IDs (weapon type for vanilla, model ID for add-on
-weapons). Reloads live while you play.
+`[JogWeapons]`, `[FireExtWeapons]` and the `[AIWalkstyles]` lists in
+`SA.StoriesSprinting.ini` take comma/space-separated weapon IDs (weapon type for
+vanilla, model ID for add-on weapons). Reloads live while you play.
 
 ## Build
 

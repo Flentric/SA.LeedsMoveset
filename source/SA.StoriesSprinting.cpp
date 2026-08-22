@@ -7,6 +7,9 @@
 #include "CWeaponInfo.h"
 #include "CAnimManager.h"
 #include "CAnimBlock.h"
+#include "CPools.h"
+#include "CModelInfo.h"
+#include "CPedModelInfo.h"
 #include "eStats.h"
 #include <windows.h>
 #include <string>
@@ -22,7 +25,10 @@ static const int WALK_GROUP_OFFSET = 0x4D4;
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
-// 63/64/65 normal/fat/muscular jog, 66/67/68 fire-ext
+// walkstyle groups: 57 playerrocket, 60 player2armed, 63 playerBBBat (the jog),
+// 66 playercsaw (fire-ext); each is followed by its fat and muscular variant
+static const int ROCKET_BASE = 57;
+static const int RIFLE_BASE = 60;
 static const int JOG_BASE = 63;
 static const int FIREEXT_BASE = 66;
 
@@ -46,6 +52,13 @@ public:
     static std::set<int> noJogWeapons;    // force-no-jog (priority OFF), overrides everything
     static std::set<int> jogSlots;        // weapon.dat slots that jog by default (fallback)
     static std::set<int> fireExtWeapons;
+    static std::set<int> aiRocketWeapons; // ped-only lists (AI walkstyles)
+    static std::set<int> aiRifleWeapons;
+    static std::set<int> aiBatWeapons;
+    static std::set<int> aiHeavyWeapons;
+    static std::set<int> aiRifleSlots;
+    static bool aiWalkstyles;
+    static bool aiCombo;
     static bool noFat;
     static bool noMuscle;
     static bool fireExtFix;
@@ -97,6 +110,24 @@ public:
 
         GetPrivateProfileStringA("FireExtWeapons", "Weapons", "42", buf, sizeof(buf), f);
         ParseIds(buf, fireExtWeapons);
+
+        aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
+        aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
+
+        GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
+        ParseIds(buf, aiRocketWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "RifleWeapons", "25,27,30,31,33,34", buf, sizeof(buf), f);
+        ParseIds(buf, aiRifleWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "BatWeapons", "5,6,7", buf, sizeof(buf), f);
+        ParseIds(buf, aiBatWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "HeavyWeapons", "9,37,38", buf, sizeof(buf), f);
+        ParseIds(buf, aiHeavyWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "RifleSlots", "3,5,6", buf, sizeof(buf), f);
+        ParseIds(buf, aiRifleSlots);
     }
 
     static void ApplyAnimPatches() {
@@ -123,7 +154,11 @@ public:
 
     static void Process() {
         if (--reloadTimer <= 0) { LoadConfig(); reloadTimer = 100; }
+        ProcessPlayer();
+        if (aiWalkstyles) ProcessPeds();
+    }
 
+    static void ProcessPlayer() {
         CPlayerPed* ped = FindPlayerPed();
         if (!ped) return;
         // bInVehicle, not m_pVehicle (that lingers after you exit a car)
@@ -159,12 +194,75 @@ public:
         *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET) = group;
         ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
     }
+
+    // the group a ped falls back to when it holds nothing we care about
+    static int ModelAnimGroup(CPed* ped) {
+        int id = (int)(unsigned short)ped->m_nModelIndex;
+        CBaseModelInfo* mi = CModelInfo::GetModelInfo(id);
+        return mi ? ((CPedModelInfo*)mi)->m_nAnimType : -1;
+    }
+
+    static bool IsAIGroup(int group) {
+        return group == ROCKET_BASE || group == RIFLE_BASE
+            || group == JOG_BASE || group == FIREEXT_BASE;
+    }
+
+    // AI Weapon Walkstyles: give peds the same weapon walkstyle the player gets,
+    // so they carry rifles/rockets two-handed instead of the silly one-hand hold.
+    // Unlike the player there is no fat/muscular variant - peds are their own model.
+    static void ProcessPeds() {
+        CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
+        if (!pool) return;
+
+        for (int i = 0; i < pool->m_nSize; i++) {
+            CPed* ped = pool->GetAt(i);
+            if (!ped || ped->m_pPlayerData) continue;
+
+            int type = (int)ped->GetWeapon()->m_eWeaponType;
+            int model = -1, slot = -1;
+            if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0)) {
+                model = wi->m_nModelId;
+                slot = (int)wi->m_nSlot;
+            }
+
+            //   RocketWeapons > RifleWeapons > BatWeapons > HeavyWeapons >
+            //   [combo] JogWeapons > [combo] FireExtWeapons > RifleSlots fallback >
+            //   [combo] JogSlots fallback > the ped model's own walkstyle.
+            int group = -1;
+            if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
+            else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
+            else if (InList(aiBatWeapons, type, model)) group = JOG_BASE;
+            else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
+            else if (aiCombo && !InList(noJogWeapons, type, model)
+                && InList(jogWeapons, type, model)) group = JOG_BASE;
+            else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
+            else if (slot >= 0 && aiRifleSlots.count(slot)) group = RIFLE_BASE;
+            else if (aiCombo && slot >= 0 && jogSlots.count(slot)
+                && !InList(noJogWeapons, type, model)) group = JOG_BASE;
+
+            int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
+            if (group < 0) {
+                // only undo our own groups, so scripted walkstyles survive
+                if (!IsAIGroup(*cur)) continue;
+                group = ModelAnimGroup(ped);
+                if (group < 0) continue;
+            }
+            if (*cur != group) *cur = group;
+        }
+    }
 };
 
 std::set<int> StoriesSprinting::jogWeapons;
 std::set<int> StoriesSprinting::noJogWeapons;
 std::set<int> StoriesSprinting::jogSlots;
 std::set<int> StoriesSprinting::fireExtWeapons;
+std::set<int> StoriesSprinting::aiRocketWeapons;
+std::set<int> StoriesSprinting::aiRifleWeapons;
+std::set<int> StoriesSprinting::aiBatWeapons;
+std::set<int> StoriesSprinting::aiHeavyWeapons;
+std::set<int> StoriesSprinting::aiRifleSlots;
+bool StoriesSprinting::aiWalkstyles = false;
+bool StoriesSprinting::aiCombo = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;
 bool StoriesSprinting::fireExtFix = true;

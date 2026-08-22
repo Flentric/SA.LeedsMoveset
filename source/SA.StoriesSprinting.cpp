@@ -97,6 +97,7 @@ public:
     static std::set<int> aiHeavyWeapons;
     static std::set<int> aiRifleSlots;
     static std::set<int> aiJogWeapons;   // ped-only jog, independent of the combo
+    static std::set<int> aiIgnoreWeapons; // ped-only: leave the ped's own walkstyle alone
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
@@ -177,6 +178,9 @@ public:
 
         GetPrivateProfileStringA("AIWalkstyles", "JogWeapons", "", buf, sizeof(buf), f);
         ParseIds(buf, aiJogWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "IgnoreWeapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, aiIgnoreWeapons);
     }
 
     static void ApplyAnimPatches() {
@@ -339,7 +343,7 @@ public:
                 slot = (int)wi->m_nSlot;
             }
 
-            //   RocketWeapons > RifleWeapons > HeavyWeapons > [AIWalkstyles] JogWeapons >
+            //   IgnoreWeapons > RocketWeapons > RifleWeapons > HeavyWeapons > JogWeapons >
             //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons >
             //   RifleSlots fallback > [combo] JogSlots fallback > the ped's own walkstyle.
             // The combo-gated paths hand out group 63 wholesale from the player's lists;
@@ -347,7 +351,8 @@ public:
             // sawn-off can jog like a dual Tec-9 without turning the whole combo on.
             // NoJogWeapons still overrides every route to the jog.
             int group = -1;
-            if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
+            if (InList(aiIgnoreWeapons, type, model)) group = -1;
+            else if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
             else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
             else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
             else if (!InList(noJogWeapons, type, model) && InList(aiJogWeapons, type, model))
@@ -385,6 +390,7 @@ std::set<int> StoriesSprinting::aiBatWeapons;
 std::set<int> StoriesSprinting::aiHeavyWeapons;
 std::set<int> StoriesSprinting::aiRifleSlots;
 std::set<int> StoriesSprinting::aiJogWeapons;
+std::set<int> StoriesSprinting::aiIgnoreWeapons;
 std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;

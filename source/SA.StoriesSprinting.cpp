@@ -40,6 +40,9 @@ static const int GANG_TALK_LAST = 286;
 static const int ROADCROSS_SLOT = 4;
 // move anim groups: 54-71 are the player/weapon ones, 118+ come from animgrp.dat
 static bool IsMoveAnimGroup(int g) { return (g >= 54 && g <= 71) || g >= 118; }
+// idle_hbhb, the look-around fidget - it sits at two ids, which is why it reads as twice
+static const int IDLE_HBHB_FIRST = 8;
+static const int IDLE_HBHB_LAST = 9;
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -223,8 +226,9 @@ public:
         return slot >= 0 && aiRifleSlots.count(slot) && !InList(jogWeapons, type, model);
     }
 
-    // tauntOnly keeps the handshakes, smoking and leaning and drops just the gesture
-    static void StopGangChatAnims(CPed* ped, bool tauntOnly, bool alsoRoadCross) {
+    // tauntOnly keeps the handshakes, smoking and leaning and drops just the gesture.
+    // armed additionally drops the roadcross wave and the look-around idle.
+    static void StopGangChatAnims(CPed* ped, bool tauntOnly, bool armed) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
         for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a; ) {
@@ -233,9 +237,11 @@ public:
             bool gang = a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt);
             // any move group, not just the ped's current one - the association can predate
             // the walkstyle this mod gives them
-            bool roadcross = alsoRoadCross && a->m_nAnimId == ROADCROSS_SLOT
+            bool roadcross = armed && a->m_nAnimId == ROADCROSS_SLOT
                 && IsMoveAnimGroup(a->m_nAnimGroup);
-            if (gang || roadcross) {
+            bool lookAround = armed && a->m_nAnimGroup == ANIM_GROUP_DEFAULT
+                && a->m_nAnimId >= IDLE_HBHB_FIRST && a->m_nAnimId <= IDLE_HBHB_LAST;
+            if (gang || roadcross || lookAround) {
                 // zero it as well as fading, otherwise a frame of it still shows
                 a->m_fBlendAmount = 0.0f;
                 a->m_fBlendDelta = CHAT_BLEND_OUT;

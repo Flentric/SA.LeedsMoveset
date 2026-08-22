@@ -199,7 +199,10 @@ public:
     static int ModelAnimGroup(CPed* ped) {
         int id = (int)(unsigned short)ped->m_nModelIndex;
         CBaseModelInfo* mi = CModelInfo::GetModelInfo(id);
-        return mi ? ((CPedModelInfo*)mi)->m_nAnimType : -1;
+        // m_nAnimType is only a CPedModelInfo field, so don't trust any other type
+        if (!mi || mi->GetModelType() != MODEL_INFO_PED) return -1;
+        int group = ((CPedModelInfo*)mi)->m_nAnimType;
+        return (group >= 0 && group < CAnimManager::ms_numAnimAssocDefinitions) ? group : -1;
     }
 
     static bool IsAIGroup(int group) {

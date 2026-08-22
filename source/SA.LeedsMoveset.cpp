@@ -92,7 +92,7 @@ struct PedWalkstyle {
     PedWalkstyle() : id(0), active(false), ourGroup(0), savedGroup(0) {}
 };
 
-class StoriesSprinting {
+class LeedsMoveset {
 public:
     static std::vector<PedWalkstyle> pedWalk;
     static std::set<int> jogWeapons;      // force-jog (priority ON), by weapon type or model id
@@ -123,6 +123,7 @@ public:
     static bool fireExtFix;
     static bool patched;
     static std::string iniPath;
+    static std::string iniSection;
     static int reloadTimer;
 
     static std::string AsiFolder() {
@@ -147,12 +148,30 @@ public:
         }
     }
 
+    // this mod used to be called SA.StoriesSprinting - keep reading an old INI, and an
+    // old section inside a renamed one, so nobody's settings vanish on upgrade
+    static void ResolveIni() {
+        static const char* OLD_NAME = "SA.StoriesSprinting";
+        static const char* NEW_NAME = "SA.LeedsMoveset";
+        std::string folder = AsiFolder();
+        iniPath = folder + NEW_NAME + ".ini";
+        if (GetFileAttributesA(iniPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+            std::string legacy = folder + OLD_NAME + ".ini";
+            if (GetFileAttributesA(legacy.c_str()) != INVALID_FILE_ATTRIBUTES) iniPath = legacy;
+        }
+        iniSection = NEW_NAME;
+        const char* f = iniPath.c_str();
+        if (GetPrivateProfileIntA(NEW_NAME, "NoFat1Armed", -1, f) == -1
+            && GetPrivateProfileIntA(OLD_NAME, "NoFat1Armed", -1, f) != -1)
+            iniSection = OLD_NAME;
+    }
+
     static void LoadConfig() {
         const char* f = iniPath.c_str();
-        noFat = GetPrivateProfileIntA("SA.StoriesSprinting", "NoFat1Armed", 0, f) != 0;
-        noMuscle = GetPrivateProfileIntA("SA.StoriesSprinting", "NoMuscle1Armed", 0, f) != 0;
-        noSkinny = GetPrivateProfileIntA("SA.StoriesSprinting", "NoSkinny1Armed", 0, f) != 0;
-        fireExtFix = GetPrivateProfileIntA("SA.StoriesSprinting", "FireExtinguisherWalkstyleFix", 1, f) != 0;
+        noFat = GetPrivateProfileIntA(iniSection.c_str(), "NoFat1Armed", 0, f) != 0;
+        noMuscle = GetPrivateProfileIntA(iniSection.c_str(), "NoMuscle1Armed", 0, f) != 0;
+        noSkinny = GetPrivateProfileIntA(iniSection.c_str(), "NoSkinny1Armed", 0, f) != 0;
+        fireExtFix = GetPrivateProfileIntA(iniSection.c_str(), "FireExtinguisherWalkstyleFix", 1, f) != 0;
 
         char buf[2048];
         GetPrivateProfileStringA("JogWeapons", "Weapons",
@@ -171,12 +190,12 @@ public:
         GetPrivateProfileStringA("FireExtWeapons", "Weapons", "42", buf, sizeof(buf), f);
         ParseIds(buf, fireExtWeapons);
 
-        aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
-        aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
-        aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 0, f) != 0;
-        noArmedHandSignals = GetPrivateProfileIntA("SA.StoriesSprinting", "NoArmedHandSignals", 0, f) != 0;
-        noGangTaunts = GetPrivateProfileIntA("SA.StoriesSprinting", "NoGangTaunts", 0, f) != 0;
-        debugLog = GetPrivateProfileIntA("SA.StoriesSprinting", "DebugLog", 0, f) != 0;
+        aiWalkstyles = GetPrivateProfileIntA(iniSection.c_str(), "AIWeaponWalkstyles", 0, f) != 0;
+        aiCombo = GetPrivateProfileIntA(iniSection.c_str(), "AIStoriesSprintingCombo", 0, f) != 0;
+        aiGroupSprint = GetPrivateProfileIntA(iniSection.c_str(), "AIGroupSprintFix", 0, f) != 0;
+        noArmedHandSignals = GetPrivateProfileIntA(iniSection.c_str(), "NoArmedHandSignals", 0, f) != 0;
+        noGangTaunts = GetPrivateProfileIntA(iniSection.c_str(), "NoGangTaunts", 0, f) != 0;
+        debugLog = GetPrivateProfileIntA(iniSection.c_str(), "DebugLog", 0, f) != 0;
 
         GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
         ParseIds(buf, aiRocketWeapons);
@@ -254,7 +273,7 @@ public:
     static void LogPedAnims(CPed* ped, int type) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
-        FILE* f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a");
+        FILE* f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a");
         if (!f) return;
         fprintf(f, "ped wep=%d anims:", type);
         for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a;
@@ -327,7 +346,7 @@ public:
             if (nearSig[i] == sig) continue;
             nearSig[i] = sig;
 
-            if (!f) { f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a"); if (!f) return; }
+            if (!f) { f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a"); if (!f) return; }
             fprintf(f, "near type=%d wep=%d anims:", ped->m_nPedType,
                 (int)ped->GetWeapon()->m_eWeaponType);
             for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
@@ -365,7 +384,7 @@ public:
             }
         }
 
-        FILE* f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a");
+        FILE* f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a");
         if (!f) return;
         fprintf(f, "wep=%d model=%d slot=%d flags=0x%X group=%d modBase=%d wobj=%s miType=%d miWep=%d "
                    "body=%d FAT=%d MUSC=%d patched=%d\n",
@@ -522,43 +541,44 @@ public:
     }
 };
 
-std::set<int> StoriesSprinting::jogWeapons;
-std::set<int> StoriesSprinting::noJogWeapons;
-std::set<int> StoriesSprinting::jogSlots;
-std::set<int> StoriesSprinting::fireExtWeapons;
-std::set<int> StoriesSprinting::aiRocketWeapons;
-std::set<int> StoriesSprinting::aiRifleWeapons;
-std::set<int> StoriesSprinting::aiBatWeapons;
-std::set<int> StoriesSprinting::aiHeavyWeapons;
-std::set<int> StoriesSprinting::aiRifleSlots;
-std::set<int> StoriesSprinting::aiJogWeapons;
-std::set<int> StoriesSprinting::aiIgnoreWeapons;
-std::set<int> StoriesSprinting::aiJogPedTypes;
-std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
-bool StoriesSprinting::aiWalkstyles = false;
-bool StoriesSprinting::aiCombo = false;
-bool StoriesSprinting::aiGroupSprint = false;
-bool StoriesSprinting::noArmedHandSignals = false;
-bool StoriesSprinting::noGangTaunts = false;
-bool StoriesSprinting::debugLog = false;
-int StoriesSprinting::logTimer = 0;
-int StoriesSprinting::pedLogTimer = 0;
-std::vector<unsigned> StoriesSprinting::nearSig;
-bool StoriesSprinting::groupSprintPatched = false;
-bool StoriesSprinting::noFat = false;
-bool StoriesSprinting::noMuscle = false;
-bool StoriesSprinting::noSkinny = false;
-bool StoriesSprinting::fireExtFix = true;
-bool StoriesSprinting::patched = false;
-std::string StoriesSprinting::iniPath;
-int StoriesSprinting::reloadTimer = 0;
+std::set<int> LeedsMoveset::jogWeapons;
+std::set<int> LeedsMoveset::noJogWeapons;
+std::set<int> LeedsMoveset::jogSlots;
+std::set<int> LeedsMoveset::fireExtWeapons;
+std::set<int> LeedsMoveset::aiRocketWeapons;
+std::set<int> LeedsMoveset::aiRifleWeapons;
+std::set<int> LeedsMoveset::aiBatWeapons;
+std::set<int> LeedsMoveset::aiHeavyWeapons;
+std::set<int> LeedsMoveset::aiRifleSlots;
+std::set<int> LeedsMoveset::aiJogWeapons;
+std::set<int> LeedsMoveset::aiIgnoreWeapons;
+std::set<int> LeedsMoveset::aiJogPedTypes;
+std::vector<PedWalkstyle> LeedsMoveset::pedWalk;
+bool LeedsMoveset::aiWalkstyles = false;
+bool LeedsMoveset::aiCombo = false;
+bool LeedsMoveset::aiGroupSprint = false;
+bool LeedsMoveset::noArmedHandSignals = false;
+bool LeedsMoveset::noGangTaunts = false;
+bool LeedsMoveset::debugLog = false;
+int LeedsMoveset::logTimer = 0;
+int LeedsMoveset::pedLogTimer = 0;
+std::vector<unsigned> LeedsMoveset::nearSig;
+bool LeedsMoveset::groupSprintPatched = false;
+bool LeedsMoveset::noFat = false;
+bool LeedsMoveset::noMuscle = false;
+bool LeedsMoveset::noSkinny = false;
+bool LeedsMoveset::fireExtFix = true;
+bool LeedsMoveset::patched = false;
+std::string LeedsMoveset::iniPath;
+std::string LeedsMoveset::iniSection;
+int LeedsMoveset::reloadTimer = 0;
 
-class StoriesSprintingPlugin {
+class LeedsMovesetPlugin {
 public:
-    StoriesSprintingPlugin() {
-        StoriesSprinting::iniPath = StoriesSprinting::AsiFolder() + "SA.StoriesSprinting.ini";
-        StoriesSprinting::LoadConfig();
-        StoriesSprinting::ApplyAnimPatches();
-        Events::gameProcessEvent += [] { StoriesSprinting::Process(); };
+    LeedsMovesetPlugin() {
+        LeedsMoveset::ResolveIni();
+        LeedsMoveset::LoadConfig();
+        LeedsMoveset::ApplyAnimPatches();
+        Events::gameProcessEvent += [] { LeedsMoveset::Process(); };
     }
-} storiesSprintingPlugin;
+} leedsMovesetPlugin;

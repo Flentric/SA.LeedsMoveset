@@ -1,8 +1,8 @@
-# SA.StoriesSprinting
+# SA.LeedsMoveset
 
 A native GTA: San Andreas ASI that replaces H-G's "Stories Sprinting" CLEO
 script. It lets you sprint with heavy weapons and use the one-handed jog run
-animation, with a **configurable weapon list** (edit `SA.StoriesSprinting.ini`)
+animation, with a **configurable weapon list** (edit `SA.LeedsMoveset.ini`)
 that supports **fastman92 add-on weapons** — matched by weapon type *or* model
 ID. The "eASIer" memory patches are folded in, so no separate patcher plugin is
 needed, and **AI Walkstyles Fix** is built in as an optional setting.
@@ -17,7 +17,7 @@ Built with [plugin-sdk](https://github.com/DK22Pac/plugin-sdk). Targets
 
 ## Install
 
-Drop `SA.StoriesSprinting.asi` and `SA.StoriesSprinting.ini` into your game
+Drop `SA.LeedsMoveset.asi` and `SA.LeedsMoveset.ini` into your game
 (with an ASI loader). Keep the rest of the animation mod — the `.ifp`
 animations and the weapon.dat anim-group edits — in place.
 
@@ -42,11 +42,11 @@ Off by default. The fire-extinguisher fix itself is the mod's existing
 ## Config
 
 `[JogWeapons]`, `[FireExtWeapons]` and the `[AIWalkstyles]` lists in
-`SA.StoriesSprinting.ini` take comma/space-separated weapon IDs (weapon type for
+`SA.LeedsMoveset.ini` take comma/space-separated weapon IDs (weapon type for
 vanilla, model ID for add-on weapons). Reloads live while you play.
 
 ## Build
 
 Needs the plugin-sdk with the `PLUGIN_SDK_DIR` environment variable set.
-Build `SA.StoriesSprinting.vcxproj` (configuration **Release GTA-SA**, platform
+Build `SA.LeedsMoveset.vcxproj` (configuration **Release GTA-SA**, platform
 **Win32**, toolset **v145**).

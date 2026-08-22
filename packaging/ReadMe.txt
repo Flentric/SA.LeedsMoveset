@@ -1,5 +1,5 @@
 ========================================================================
- Stories Sprinting - ASI Edition
+ Leeds Moveset
 ========================================================================
 
 Sprint with every weapon (chainsaw, RPG, rifles, etc.) using the native
@@ -16,9 +16,9 @@ configurable, including fastman92 add-on weapons. It also absorbs
  What's in this version
 ------------------------------------------------------------------------
 
-- One plugin (SA.StoriesSprinting.asi) - no CLEO Library required, no
+- One plugin (SA.LeedsMoveset.asi) - no CLEO Library required, no
   separate memory-patcher plugin.
-- Configurable weapon list via SA.StoriesSprinting.ini - add your own
+- Configurable weapon list via SA.LeedsMoveset.ini - add your own
   weapons (including fastman92 add-on weapons) to the jog animation.
 - The heavy-weapon sprint patches (formerly sprint.txt) are built in.
 - Settings reload live while you play - edit the INI and it applies.
@@ -42,7 +42,7 @@ configurable, including fastman92 add-on weapons. It also absorbs
  Installation (Mod Loader - recommended)
 ------------------------------------------------------------------------
 
-1. Copy the "SA.StoriesSprinting" folder from inside "modloader" into your
+1. Copy the "SA.LeedsMoveset" folder from inside "modloader" into your
    game's "modloader" folder.
 
 That's it. The folder contains everything:
@@ -54,15 +54,15 @@ That's it. The folder contains everything:
  Installation (manual, without Mod Loader)
 ------------------------------------------------------------------------
 
-- scripts\SA.StoriesSprinting.asi + SA.StoriesSprinting.ini -> game root.
+- scripts\SA.LeedsMoveset.asi + SA.LeedsMoveset.ini -> game root.
 - anim\ped.ifp                     -> replace in gta3.img (or modloader).
 - models\gta3.img\fat.ifp          -> replace in gta3.img.
 - models\gta3.img\muscular.ifp     -> replace in gta3.img.
-- data\SA.StoriesSprintingWeaponData.txt -> merge into your weapon.dat.
+- data\SA.LeedsMovesetWeaponData.txt -> merge into your weapon.dat.
 
 
 ------------------------------------------------------------------------
- Configuring weapons (SA.StoriesSprinting.ini)
+ Configuring weapons (SA.LeedsMoveset.ini)
 ------------------------------------------------------------------------
 
 [JogWeapons]     - weapons that use the one-handed jog run animation.
@@ -111,7 +111,7 @@ Other options:
   NoArmedHandSignals       - stop peds throwing gang signs and chatting
                              gestures while holding a two-handed weapon.
                              They still talk. Off by default.
-  DebugLog                 - writes SA.StoriesSprinting.log next to the
+  DebugLog                 - writes SA.LeedsMoveset.log next to the
                              ASI, for tracking down walkstyle reports.
 
 

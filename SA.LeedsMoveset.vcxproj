@@ -10,7 +10,7 @@
     <ProjectGuid>{2F8B1C63-9A4E-4D17-B0C2-7E3A5F1D9B84}</ProjectGuid>
     <IgnoreWarnCompileDuplicatedFilename>true</IgnoreWarnCompileDuplicatedFilename>
     <Keyword>Win32Proj</Keyword>
-    <RootNamespace>StoriesSprinting</RootNamespace>
+    <RootNamespace>LeedsMoveset</RootNamespace>
     <WindowsTargetPlatformVersion>10.0</WindowsTargetPlatformVersion>
   </PropertyGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
@@ -33,7 +33,7 @@
     <IgnoreImportLibrary>true</IgnoreImportLibrary>
     <OutDir>$(ProjectDir)bin\GTA-SA\Release\</OutDir>
     <IntDir>$(ProjectDir)obj\GTA-SA\Release\</IntDir>
-    <TargetName>SA.StoriesSprinting</TargetName>
+    <TargetName>SA.LeedsMoveset</TargetName>
     <TargetExt>.asi</TargetExt>
   </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release GTA-SA|Win32'">
@@ -62,11 +62,11 @@
       <LinkTimeCodeGeneration>UseLinkTimeCodeGeneration</LinkTimeCodeGeneration>
       <AdditionalDependencies>plugin.lib;d3d9.lib;d3dx9.lib;%(AdditionalDependencies)</AdditionalDependencies>
       <AdditionalLibraryDirectories>$(PLUGIN_SDK_DIR)\output\lib;$(PLUGIN_SDK_DIR)\shared\dxsdk;%(AdditionalLibraryDirectories)</AdditionalLibraryDirectories>
-      <ImportLibrary>bin\GTA-SA\Release\SA.StoriesSprinting.lib</ImportLibrary>
+      <ImportLibrary>bin\GTA-SA\Release\SA.LeedsMoveset.lib</ImportLibrary>
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
-    <ClCompile Include="source\SA.StoriesSprinting.cpp" />
+    <ClCompile Include="source\SA.LeedsMoveset.cpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">

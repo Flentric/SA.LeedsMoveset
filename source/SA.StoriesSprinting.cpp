@@ -14,6 +14,7 @@
 #include <windows.h>
 #include <string>
 #include <set>
+#include <vector>
 
 using namespace plugin;
 
@@ -52,8 +53,18 @@ static const AnimPatch g_animPatches[] = {
     { 0x8A8C04, 0x85D920 },
 };
 
+// a ped's walkstyle before we overrode it, per ped-pool slot
+struct PedWalkstyle {
+    unsigned char id;
+    bool active;
+    int ourGroup;
+    int savedGroup;
+    PedWalkstyle() : id(0), active(false), ourGroup(0), savedGroup(0) {}
+};
+
 class StoriesSprinting {
 public:
+    static std::vector<PedWalkstyle> pedWalk;
     static std::set<int> jogWeapons;      // force-jog (priority ON), by weapon type or model id
     static std::set<int> noJogWeapons;    // force-no-jog (priority OFF), overrides everything
     static std::set<int> jogSlots;        // weapon.dat slots that jog by default (fallback)
@@ -173,6 +184,7 @@ public:
         ProcessPlayer();
         SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
         if (aiWalkstyles) ProcessPeds();
+        else ReleasePeds();
     }
 
     static void ProcessPlayer() {
@@ -212,19 +224,29 @@ public:
         ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
     }
 
-    // the group a ped falls back to when it holds nothing we care about
-    static int ModelAnimGroup(CPed* ped) {
-        int id = (int)(unsigned short)ped->m_nModelIndex;
-        CBaseModelInfo* mi = CModelInfo::GetModelInfo(id);
-        // m_nAnimType is only a CPedModelInfo field, so don't trust any other type
-        if (!mi || mi->GetModelType() != MODEL_INFO_PED) return -1;
-        int group = ((CPedModelInfo*)mi)->m_nAnimType;
-        return (group >= 0 && group < CAnimManager::ms_numAnimAssocDefinitions) ? group : -1;
+    // Put a ped's walkstyle back to what it had before we touched it. Restoring the
+    // ped model's own group instead would lose walkstyles that scripts (opcode 0245)
+    // or ped-model-swapping mods assigned at runtime, which is how peds ended up
+    // walking around in the fatman/woman styles.
+    static void RestorePed(PedWalkstyle& rec, CPed* ped) {
+        if (!rec.active) return;
+        int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
+        if (*cur == rec.ourGroup) *cur = rec.savedGroup;
+        rec.active = false;
     }
 
-    static bool IsAIGroup(int group) {
-        return group == ROCKET_BASE || group == RIFLE_BASE
-            || group == JOG_BASE || group == FIREEXT_BASE;
+    // called when the feature gets switched off mid-game, so nobody stays overridden
+    static void ReleasePeds() {
+        if (pedWalk.empty()) return;
+        CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
+        if (pool) {
+            int n = pool->m_nSize < (int)pedWalk.size() ? pool->m_nSize : (int)pedWalk.size();
+            for (int i = 0; i < n; i++) {
+                CPed* ped = pool->GetAt(i);
+                if (ped && pool->GetIdAt(i) == pedWalk[i].id) RestorePed(pedWalk[i], ped);
+            }
+        }
+        pedWalk.clear();
     }
 
     // AI Weapon Walkstyles: give peds the same weapon walkstyle the player gets,
@@ -233,10 +255,16 @@ public:
     static void ProcessPeds() {
         CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
         if (!pool) return;
+        if ((int)pedWalk.size() != pool->m_nSize) pedWalk.assign(pool->m_nSize, PedWalkstyle());
 
         for (int i = 0; i < pool->m_nSize; i++) {
+            PedWalkstyle& rec = pedWalk[i];
             CPed* ped = pool->GetAt(i);
-            if (!ped || ped->m_pPlayerData) continue;
+            if (!ped) { rec.active = false; continue; }
+            // the pool reuses slots; its id byte changes, so any saved group is stale
+            unsigned char id = pool->GetIdAt(i);
+            if (rec.id != id) { rec.id = id; rec.active = false; }
+            if (ped->m_pPlayerData) { rec.active = false; continue; }
 
             int type = (int)ped->GetWeapon()->m_eWeaponType;
             int model = -1, slot = -1;
@@ -264,12 +292,15 @@ public:
                 && !InList(noJogWeapons, type, model)) group = JOG_BASE;
 
             int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
-            if (group < 0) {
-                // only undo our own groups, so scripted walkstyles survive
-                if (!IsAIGroup(*cur)) continue;
-                group = ModelAnimGroup(ped);
-                if (group < 0) continue;
+            if (group < 0) { RestorePed(rec, ped); continue; }
+
+            // anything other than our own last write is the ped's real walkstyle,
+            // so remember it - that covers a script changing it while we hold the group
+            if (!rec.active || *cur != rec.ourGroup) {
+                rec.savedGroup = *cur;
+                rec.active = true;
             }
+            rec.ourGroup = group;
             if (*cur != group) *cur = group;
         }
     }
@@ -284,6 +315,7 @@ std::set<int> StoriesSprinting::aiRifleWeapons;
 std::set<int> StoriesSprinting::aiBatWeapons;
 std::set<int> StoriesSprinting::aiHeavyWeapons;
 std::set<int> StoriesSprinting::aiRifleSlots;
+std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
 bool StoriesSprinting::aiGroupSprint = true;

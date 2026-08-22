@@ -11,6 +11,7 @@
 #include "CModelInfo.h"
 #include "CPedModelInfo.h"
 #include "CWeaponModelInfo.h"
+#include "CAnimBlendAssociation.h"
 #include "eStats.h"
 #include <windows.h>
 #include <string>
@@ -29,12 +30,9 @@ static const int WALK_GROUP_OFFSET = 0x4D4;
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
-// CTaskManager::FindActiveTaskByType, and the gang conversation gesture task, which
-// blends the gangs group over the top of whatever the ped is holding
-static const uintptr_t FIND_ACTIVE_TASK_BY_TYPE = 0x681740;
-static const int TASK_GANG_CHAT_ANIM = 0x4C0;
-typedef void* (__thiscall* FindActiveTaskByType_t)(void*, int);
-typedef bool (__thiscall* MakeAbortable_t)(void*, CPed*, int, void*);
+// conversation gestures come from the gangs group; -8.0 is the blend delta the game
+// itself uses to end one
+static const float CHAT_BLEND_OUT = -8.0f;
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -104,6 +102,7 @@ public:
     static bool noArmedHandSignals;
     static bool debugLog;
     static int logTimer;
+    static int pedLogTimer;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
@@ -210,14 +209,29 @@ public:
         return slot >= 0 && aiRifleSlots.count(slot) && !InList(jogWeapons, type, model);
     }
 
-    // same abort the game does in CPed::StopPlayingHandSignal
-    static void AbortTask(CPed* ped, int taskType) {
-        void* intel = *(void**)((uintptr_t)ped + INTELLIGENCE_OFFSET);
-        if (!intel) return;
-        void* task = ((FindActiveTaskByType_t)FIND_ACTIVE_TASK_BY_TYPE)((char*)intel + 4, taskType);
-        if (!task) return;
-        void** vt = *(void***)task;
-        ((MakeAbortable_t)vt[6])(task, ped, 1, nullptr);
+    static void StopGangChatAnims(CPed* ped) {
+        RpClump* clump = (RpClump*)ped->m_pRwObject;
+        if (!clump) return;
+        for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a; ) {
+            CAnimBlendAssociation* next = RpAnimBlendGetNextAssociation(a);
+            if (a->m_nAnimGroup == ANIM_GROUP_GANGS && a->m_fBlendDelta >= 0.0f)
+                a->m_fBlendDelta = CHAT_BLEND_OUT;
+            a = next;
+        }
+    }
+
+    // DebugLog=1: what a two-handed ped is actually playing, so the groups can be checked
+    static void LogPedAnims(CPed* ped, int type) {
+        RpClump* clump = (RpClump*)ped->m_pRwObject;
+        if (!clump) return;
+        FILE* f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a");
+        if (!f) return;
+        fprintf(f, "ped wep=%d anims:", type);
+        for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a;
+             a = RpAnimBlendGetNextAssociation(a))
+            fprintf(f, " %d/%d(%.2f)", (int)a->m_nAnimGroup, (int)a->m_nAnimId, a->m_fBlendAmount);
+        fprintf(f, "\n");
+        fclose(f);
     }
 
     // gang signs and conversation gestures are tasks; the game picks handsignalL when the
@@ -240,7 +254,8 @@ public:
             }
             if (!IsTwoHanded(type, model, slot)) continue;
             if (ped->IsPlayingHandSignal()) ped->StopPlayingHandSignal();
-            AbortTask(ped, TASK_GANG_CHAT_ANIM);
+            StopGangChatAnims(ped);
+            if (debugLog && --pedLogTimer <= 0) { pedLogTimer = 100; LogPedAnims(ped, type); }
         }
     }
 
@@ -442,6 +457,7 @@ bool StoriesSprinting::aiGroupSprint = true;
 bool StoriesSprinting::noArmedHandSignals = false;
 bool StoriesSprinting::debugLog = false;
 int StoriesSprinting::logTimer = 0;
+int StoriesSprinting::pedLogTimer = 0;
 bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;

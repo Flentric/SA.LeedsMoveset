@@ -22,7 +22,11 @@ using namespace plugin;
 static const uintptr_t WRITE_ADDR = 0x609A4E;
 static const int WALK_GROUP_OFFSET = 0x4D4;
 
-// reblends the walk/run/sprint slots from the 0x4D4 group
+// Reblends the walk/run/sprint/idle/walkstart slots from the 0x4D4 group. Named for
+// CPlayerPed but it only ever touches CEntity::m_pRwObject (+0x18) and the group
+// itself, so it is safe on any ped - and peds need it: CPed::SetMoveAnim only
+// reblends when the move state changes, so without this a ped keeps its old
+// walkstyle until it next stops or starts moving.
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
@@ -231,8 +235,12 @@ public:
     static void RestorePed(PedWalkstyle& rec, CPed* ped) {
         if (!rec.active) return;
         int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
-        if (*cur == rec.ourGroup) *cur = rec.savedGroup;
+        if (*cur == rec.ourGroup) { *cur = rec.savedGroup; ReblendMoveAnims(ped); }
         rec.active = false;
+    }
+
+    static void ReblendMoveAnims(CPed* ped) {
+        if (ped->m_pRwObject) ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
     }
 
     // called when the feature gets switched off mid-game, so nobody stays overridden
@@ -301,7 +309,7 @@ public:
                 rec.active = true;
             }
             rec.ourGroup = group;
-            if (*cur != group) *cur = group;
+            if (*cur != group) { *cur = group; ReblendMoveAnims(ped); }
         }
     }
 };

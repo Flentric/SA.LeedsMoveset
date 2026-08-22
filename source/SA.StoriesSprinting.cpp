@@ -96,6 +96,7 @@ public:
     static std::set<int> aiBatWeapons;
     static std::set<int> aiHeavyWeapons;
     static std::set<int> aiRifleSlots;
+    static std::set<int> aiJogWeapons;   // ped-only jog, independent of the combo
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
@@ -173,6 +174,9 @@ public:
 
         GetPrivateProfileStringA("AIWalkstyles", "RifleSlots", "3,5,6", buf, sizeof(buf), f);
         ParseIds(buf, aiRifleSlots);
+
+        GetPrivateProfileStringA("AIWalkstyles", "JogWeapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, aiJogWeapons);
     }
 
     static void ApplyAnimPatches() {
@@ -335,16 +339,19 @@ public:
                 slot = (int)wi->m_nSlot;
             }
 
-            //   RocketWeapons > RifleWeapons > HeavyWeapons > [combo] BatWeapons +
-            //   JogWeapons > [combo] FireExtWeapons > RifleSlots fallback >
-            //   [combo] JogSlots fallback > the ped model's own walkstyle.
-            // Every JOG_BASE path is gated on the combo: group 63's run slot is the
-            // jog, so handing a ped that group is the combo whether it came from
-            // BatWeapons or JogWeapons.
+            //   RocketWeapons > RifleWeapons > HeavyWeapons > [AIWalkstyles] JogWeapons >
+            //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons >
+            //   RifleSlots fallback > [combo] JogSlots fallback > the ped's own walkstyle.
+            // The combo-gated paths hand out group 63 wholesale from the player's lists;
+            // [AIWalkstyles] JogWeapons is the per-weapon version for peds only, so a
+            // sawn-off can jog like a dual Tec-9 without turning the whole combo on.
+            // NoJogWeapons still overrides every route to the jog.
             int group = -1;
             if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
             else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
             else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
+            else if (!InList(noJogWeapons, type, model) && InList(aiJogWeapons, type, model))
+                group = JOG_BASE;
             else if (aiCombo && !InList(noJogWeapons, type, model)
                 && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
                 group = JOG_BASE;
@@ -377,6 +384,7 @@ std::set<int> StoriesSprinting::aiRifleWeapons;
 std::set<int> StoriesSprinting::aiBatWeapons;
 std::set<int> StoriesSprinting::aiHeavyWeapons;
 std::set<int> StoriesSprinting::aiRifleSlots;
+std::set<int> StoriesSprinting::aiJogWeapons;
 std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;

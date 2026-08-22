@@ -222,7 +222,7 @@ public:
     }
 
     // tauntOnly keeps the handshakes, smoking and leaning and drops just the gesture
-    static void StopGangChatAnims(CPed* ped, bool tauntOnly) {
+    static void StopGangChatAnims(CPed* ped, bool tauntOnly, bool alsoRoadCross) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
         int moveGroup = *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
@@ -230,7 +230,8 @@ public:
             CAnimBlendAssociation* next = RpAnimBlendGetNextAssociation(a);
             bool taunt = a->m_nAnimId >= GANG_TALK_FIRST && a->m_nAnimId <= GANG_TALK_LAST;
             bool gang = a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt);
-            bool roadcross = a->m_nAnimGroup == moveGroup && a->m_nAnimId == ROADCROSS_SLOT;
+            bool roadcross = alsoRoadCross && a->m_nAnimGroup == moveGroup
+                && a->m_nAnimId == ROADCROSS_SLOT;
             if ((gang || roadcross) && a->m_fBlendDelta >= 0.0f)
                 a->m_fBlendDelta = CHAT_BLEND_OUT;
             a = next;
@@ -275,10 +276,10 @@ public:
 
             if (armed) {
                 if (ped->IsPlayingHandSignal()) ped->StopPlayingHandSignal();
-                StopGangChatAnims(ped, false);
+                StopGangChatAnims(ped, false, true);
                 if (debugLog && --pedLogTimer <= 0) { pedLogTimer = 100; LogPedAnims(ped, type); }
             } else if (noGangTaunts) {
-                StopGangChatAnims(ped, true);
+                StopGangChatAnims(ped, true, false);
             }
         }
     }

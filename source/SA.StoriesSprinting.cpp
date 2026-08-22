@@ -38,6 +38,8 @@ static const int GANG_TALK_FIRST = 279;
 static const int GANG_TALK_LAST = 286;
 // slot 4 of a move anim group - the arms-out wave peds also throw after a kill
 static const int ROADCROSS_SLOT = 4;
+// move anim groups: 54-71 are the player/weapon ones, 118+ come from animgrp.dat
+static bool IsMoveAnimGroup(int g) { return (g >= 54 && g <= 71) || g >= 118; }
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -225,15 +227,19 @@ public:
     static void StopGangChatAnims(CPed* ped, bool tauntOnly, bool alsoRoadCross) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
-        int moveGroup = *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
         for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a; ) {
             CAnimBlendAssociation* next = RpAnimBlendGetNextAssociation(a);
             bool taunt = a->m_nAnimId >= GANG_TALK_FIRST && a->m_nAnimId <= GANG_TALK_LAST;
             bool gang = a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt);
-            bool roadcross = alsoRoadCross && a->m_nAnimGroup == moveGroup
-                && a->m_nAnimId == ROADCROSS_SLOT;
-            if ((gang || roadcross) && a->m_fBlendDelta >= 0.0f)
+            // any move group, not just the ped's current one - the association can predate
+            // the walkstyle this mod gives them
+            bool roadcross = alsoRoadCross && a->m_nAnimId == ROADCROSS_SLOT
+                && IsMoveAnimGroup(a->m_nAnimGroup);
+            if (gang || roadcross) {
+                // zero it as well as fading, otherwise a frame of it still shows
+                a->m_fBlendAmount = 0.0f;
                 a->m_fBlendDelta = CHAT_BLEND_OUT;
+            }
             a = next;
         }
     }

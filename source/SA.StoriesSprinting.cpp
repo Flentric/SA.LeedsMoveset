@@ -96,6 +96,7 @@ public:
     static std::set<int> aiRifleSlots;
     static std::set<int> aiJogWeapons;   // ped-only jog, independent of the combo
     static std::set<int> aiIgnoreWeapons; // ped-only: leave the ped's own walkstyle alone
+    static std::set<int> aiJogPedTypes;   // ped types allowed to jog; empty = all
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
@@ -103,6 +104,7 @@ public:
     static bool debugLog;
     static int logTimer;
     static int pedLogTimer;
+    static int nearLogTimer;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
@@ -184,6 +186,9 @@ public:
 
         GetPrivateProfileStringA("AIWalkstyles", "IgnoreWeapons", "", buf, sizeof(buf), f);
         ParseIds(buf, aiIgnoreWeapons);
+
+        GetPrivateProfileStringA("AIWalkstyles", "JogPedTypes", "", buf, sizeof(buf), f);
+        ParseIds(buf, aiJogPedTypes);
     }
 
     static void ApplyAnimPatches() {
@@ -259,6 +264,42 @@ public:
         }
     }
 
+    // DebugLog=1: dump what nearby peds are playing, for identifying an anim by sight
+    static void LogNearbyPedAnims() {
+        if (!debugLog || --nearLogTimer > 0) return;
+        nearLogTimer = 60;
+        CPlayerPed* player = FindPlayerPed();
+        CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
+        if (!player || !pool) return;
+        CVector pp = player->GetPosition();
+
+        FILE* f = NULL;
+        int shown = 0;
+        for (int i = 0; i < pool->m_nSize && shown < 4; i++) {
+            CPed* ped = pool->GetAt(i);
+            if (!ped || ped->m_pPlayerData || !ped->m_pRwObject) continue;
+            CVector d = ped->GetPosition() - pp;
+            if (d.x * d.x + d.y * d.y + d.z * d.z > 400.0f) continue;
+
+            // only groups above the movement ones are worth reporting
+            bool interesting = false;
+            for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
+                 a; a = RpAnimBlendGetNextAssociation(a))
+                if (a->m_nAnimGroup > 0 && a->m_nAnimGroup < 54) { interesting = true; break; }
+            if (!interesting) continue;
+
+            if (!f) { f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a"); if (!f) return; }
+            fprintf(f, "near type=%d wep=%d anims:", ped->m_nPedType,
+                (int)ped->GetWeapon()->m_eWeaponType);
+            for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
+                 a; a = RpAnimBlendGetNextAssociation(a))
+                fprintf(f, " %d/%d(%.2f)", (int)a->m_nAnimGroup, (int)a->m_nAnimId, a->m_fBlendAmount);
+            fprintf(f, "\n");
+            shown++;
+        }
+        if (f) fclose(f);
+    }
+
     // let peds in the player's group sprint from their own walkstyle group
     static void SetGroupSprintPatched(bool on) {
         if (on == groupSprintPatched) return;
@@ -311,6 +352,7 @@ public:
         if (aiWalkstyles) ProcessPeds();
         else ReleasePeds();
         if (noArmedHandSignals) ProcessHandSignals();
+        LogNearbyPedAnims();
     }
 
     static void ProcessPlayer() {
@@ -407,14 +449,16 @@ public:
             //   IgnoreWeapons > RocketWeapons > RifleWeapons > HeavyWeapons > JogWeapons >
             //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons > RifleSlots
             //   fallback > [combo] JogSlots fallback > the ped's own walkstyle.
+            bool mayJog = aiJogPedTypes.empty() || aiJogPedTypes.count(ped->m_nPedType) != 0;
+
             int group = -1;
             if (InList(aiIgnoreWeapons, type, model)) group = -1;
             else if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
             else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
             else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
-            else if (!InList(noJogWeapons, type, model) && InList(aiJogWeapons, type, model))
-                group = JOG_BASE;
-            else if (aiCombo && !InList(noJogWeapons, type, model)
+            else if (mayJog && !InList(noJogWeapons, type, model)
+                && InList(aiJogWeapons, type, model)) group = JOG_BASE;
+            else if (aiCombo && mayJog && !InList(noJogWeapons, type, model)
                 && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
                 group = JOG_BASE;
             else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
@@ -422,7 +466,7 @@ public:
             // rifle carry, its slot is 3 but it animates from the colt45 block
             else if (slot >= 0 && aiRifleSlots.count(slot)
                 && !InList(jogWeapons, type, model)) group = RIFLE_BASE;
-            else if (aiCombo && slot >= 0 && jogSlots.count(slot)
+            else if (aiCombo && mayJog && slot >= 0 && jogSlots.count(slot)
                 && !InList(noJogWeapons, type, model)) group = JOG_BASE;
 
             int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
@@ -450,6 +494,7 @@ std::set<int> StoriesSprinting::aiHeavyWeapons;
 std::set<int> StoriesSprinting::aiRifleSlots;
 std::set<int> StoriesSprinting::aiJogWeapons;
 std::set<int> StoriesSprinting::aiIgnoreWeapons;
+std::set<int> StoriesSprinting::aiJogPedTypes;
 std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
@@ -458,6 +503,7 @@ bool StoriesSprinting::noArmedHandSignals = false;
 bool StoriesSprinting::debugLog = false;
 int StoriesSprinting::logTimer = 0;
 int StoriesSprinting::pedLogTimer = 0;
+int StoriesSprinting::nearLogTimer = 0;
 bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;

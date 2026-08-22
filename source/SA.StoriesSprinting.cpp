@@ -24,32 +24,24 @@ using namespace plugin;
 static const uintptr_t WRITE_ADDR = 0x609A4E;
 static const int WALK_GROUP_OFFSET = 0x4D4;
 
-// Reblends the walk/run/sprint/idle/walkstart slots from the 0x4D4 group. Named for
-// CPlayerPed but it only ever touches CEntity::m_pRwObject (+0x18) and the group
-// itself, so it is safe on any ped - and peds need it: CPed::SetMoveAnim only
-// reblends when the move state changes, so without this a ped keeps its old
-// walkstyle until it next stops or starts moving.
+// reblends the walk/run/sprint slots from the 0x4D4 group; safe on any ped, and peds
+// need it because CPed::SetMoveAnim only reblends on a move state change
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
-// push 54 ("player") in CPed::SetMoveAnim's sprint case - the game hardcodes the
-// plain civilian sprint for peds in the player's group, ignoring their own group
+// push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
 static const unsigned char GROUP_SPRINT_ORIG[2] = { 0x6A, 0x36 }; // push 54
 static const unsigned char GROUP_SPRINT_OWN[2] = { 0x57, 0x90 };  // push edi ; nop
 
-// Diagnostics only. The game reads the weapon type for the walkstyle off the weapon
-// MODEL INFO, not the weapon: modelinfo(ped->m_pWeaponObject)->m_weaponInfo. If that
-// lookup fails it silently falls back to group 54, which looks like a one-handed carry.
+// diagnostics: the game reads the walkstyle's weapon type from the weapon MODEL INFO,
+// modelinfo(m_pWeaponObject)->m_weaponInfo, and falls back to group 54 if that fails
 static const uintptr_t MODELINFO_FROM_RWOBJECT = 0x732AC0;
 static const uintptr_t BODY_BASE_GROUP = 0x5A81B0; // 54/55/56, itself falls back to 54
 static const int WEAPON_OBJECT_OFFSET = 0x4F4;
 
-// CWeaponInfo::GetWeaponInfo indexes aWeaponInfo by SKILL, not by weapon alone:
-// skill 0 (poor) is aWeaponInfo[type + 25], skill 1 (std) is aWeaponInfo[type], skill 2
-// (pro) is aWeaponInfo[type + 36]. Only skill 1 lands on the weapon you asked for; the
-// others are a different weapon entirely for anything without skill levels. Model and
-// slot are the same across a weapon's skill entries, so std is what we want.
+// GetWeaponInfo indexes by skill: 0 is aWeaponInfo[type+25], 1 is aWeaponInfo[type],
+// 2 is aWeaponInfo[type+36]. Only 1 lands on the weapon asked for.
 static const unsigned char WEAPON_SKILL_STD = 1;
 typedef void* (__cdecl* MiFromRwObject_t)(void*);
 typedef int (__cdecl* BodyBaseGroup_t)();
@@ -290,10 +282,8 @@ public:
         ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
     }
 
-    // Put a ped's walkstyle back to what it had before we touched it. Restoring the
-    // ped model's own group instead would lose walkstyles that scripts (opcode 0245)
-    // or ped-model-swapping mods assigned at runtime, which is how peds ended up
-    // walking around in the fatman/woman styles.
+    // back to what the ped had, not its model default - opcode 0245 and model swaps
+    // change a ped's walkstyle at runtime
     static void RestorePed(PedWalkstyle& rec, CPed* ped) {
         if (!rec.active) return;
         int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
@@ -319,9 +309,7 @@ public:
         pedWalk.clear();
     }
 
-    // AI Weapon Walkstyles: give peds the same weapon walkstyle the player gets,
-    // so they carry rifles/rockets two-handed instead of the silly one-hand hold.
-    // Unlike the player there is no fat/muscular variant - peds are their own model.
+    // give peds the player's weapon walkstyles; no fat/muscular variant for peds
     static void ProcessPeds() {
         CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
         if (!pool) return;
@@ -344,12 +332,8 @@ public:
             }
 
             //   IgnoreWeapons > RocketWeapons > RifleWeapons > HeavyWeapons > JogWeapons >
-            //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons >
-            //   RifleSlots fallback > [combo] JogSlots fallback > the ped's own walkstyle.
-            // The combo-gated paths hand out group 63 wholesale from the player's lists;
-            // [AIWalkstyles] JogWeapons is the per-weapon version for peds only, so a
-            // sawn-off can jog like a dual Tec-9 without turning the whole combo on.
-            // NoJogWeapons still overrides every route to the jog.
+            //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons > RifleSlots
+            //   fallback > [combo] JogSlots fallback > the ped's own walkstyle.
             int group = -1;
             if (InList(aiIgnoreWeapons, type, model)) group = -1;
             else if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
@@ -361,10 +345,8 @@ public:
                 && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
                 group = JOG_BASE;
             else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
-            // A weapon in the player's [JogWeapons] list is declared one-handed, so never
-            // let the slot fallback give it a two-handed carry. The sawn-off is why: its
-            // weapon.dat slot is 3 (shotguns) but its anim group lives in the colt45
-            // block with the pistols and SMGs, so it animates one-handed even dual-wielded.
+            // [JogWeapons] declares a weapon one-handed - keeps the sawn-off out of the
+            // rifle carry, its slot is 3 but it animates from the colt45 block
             else if (slot >= 0 && aiRifleSlots.count(slot)
                 && !InList(jogWeapons, type, model)) group = RIFLE_BASE;
             else if (aiCombo && slot >= 0 && jogSlots.count(slot)
@@ -373,8 +355,7 @@ public:
             int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
             if (group < 0) { RestorePed(rec, ped); continue; }
 
-            // anything other than our own last write is the ped's real walkstyle,
-            // so remember it - that covers a script changing it while we hold the group
+            // anything but our own last write is the ped's real walkstyle
             if (!rec.active || *cur != rec.ourGroup) {
                 rec.savedGroup = *cur;
                 rec.active = true;

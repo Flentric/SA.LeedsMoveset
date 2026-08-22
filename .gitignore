@@ -9,3 +9,6 @@ obj/
 *.lib
 *.exp
 *.log
+
+# Packaged release output (rebuilt from packaging/ + bin/)
+release/

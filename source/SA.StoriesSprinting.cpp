@@ -44,6 +44,13 @@ static const unsigned char GROUP_SPRINT_OWN[2] = { 0x57, 0x90 };  // push edi ; 
 static const uintptr_t MODELINFO_FROM_RWOBJECT = 0x732AC0;
 static const uintptr_t BODY_BASE_GROUP = 0x5A81B0; // 54/55/56, itself falls back to 54
 static const int WEAPON_OBJECT_OFFSET = 0x4F4;
+
+// CWeaponInfo::GetWeaponInfo indexes aWeaponInfo by SKILL, not by weapon alone:
+// skill 0 (poor) is aWeaponInfo[type + 25], skill 1 (std) is aWeaponInfo[type], skill 2
+// (pro) is aWeaponInfo[type + 36]. Only skill 1 lands on the weapon you asked for; the
+// others are a different weapon entirely for anything without skill levels. Model and
+// slot are the same across a weapon's skill entries, so std is what we want.
+static const unsigned char WEAPON_SKILL_STD = 1;
 typedef void* (__cdecl* MiFromRwObject_t)(void*);
 typedef int (__cdecl* BodyBaseGroup_t)();
 
@@ -196,7 +203,7 @@ public:
         logTimer = 50;
 
         unsigned int flags = 0;
-        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0))
+        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD))
             flags = *(unsigned int*)((uintptr_t)wi + 0x18);
 
         void* wobj = *(void**)((uintptr_t)ped + WEAPON_OBJECT_OFFSET);
@@ -244,7 +251,7 @@ public:
 
         int type = (int)ped->GetWeapon()->m_eWeaponType;
         int model = -1, slot = -1;
-        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0)) {
+        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
             model = wi->m_nModelId;
             slot = (int)wi->m_nSlot;
         }
@@ -323,7 +330,7 @@ public:
 
             int type = (int)ped->GetWeapon()->m_eWeaponType;
             int model = -1, slot = -1;
-            if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0)) {
+            if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
                 model = wi->m_nModelId;
                 slot = (int)wi->m_nSlot;
             }

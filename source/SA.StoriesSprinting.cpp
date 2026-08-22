@@ -10,11 +10,13 @@
 #include "CPools.h"
 #include "CModelInfo.h"
 #include "CPedModelInfo.h"
+#include "CWeaponModelInfo.h"
 #include "eStats.h"
 #include <windows.h>
 #include <string>
 #include <set>
 #include <vector>
+#include <cstdio>
 
 using namespace plugin;
 
@@ -35,6 +37,15 @@ typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
 static const unsigned char GROUP_SPRINT_ORIG[2] = { 0x6A, 0x36 }; // push 54
 static const unsigned char GROUP_SPRINT_OWN[2] = { 0x57, 0x90 };  // push edi ; nop
+
+// Diagnostics only. The game reads the weapon type for the walkstyle off the weapon
+// MODEL INFO, not the weapon: modelinfo(ped->m_pWeaponObject)->m_weaponInfo. If that
+// lookup fails it silently falls back to group 54, which looks like a one-handed carry.
+static const uintptr_t MODELINFO_FROM_RWOBJECT = 0x732AC0;
+static const uintptr_t BODY_BASE_GROUP = 0x5A81B0; // 54/55/56, itself falls back to 54
+static const int WEAPON_OBJECT_OFFSET = 0x4F4;
+typedef void* (__cdecl* MiFromRwObject_t)(void*);
+typedef int (__cdecl* BodyBaseGroup_t)();
 
 // walkstyle groups: 57 playerrocket, 60 player2armed, 63 playerBBBat (the jog),
 // 66 playercsaw (fire-ext); each is followed by its fat and muscular variant
@@ -81,6 +92,8 @@ public:
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
+    static bool debugLog;
+    static int logTimer;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
@@ -137,6 +150,7 @@ public:
         aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
         aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 1, f) != 0;
+        debugLog = GetPrivateProfileIntA("SA.StoriesSprinting", "DebugLog", 0, f) != 0;
 
         GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
         ParseIds(buf, aiRocketWeapons);
@@ -176,6 +190,37 @@ public:
         groupSprintPatched = on;
     }
 
+    // DebugLog=1: dump what the game and the mod each think the walkstyle should be
+    static void LogPlayer(CPlayerPed* ped, int type, int model, int slot, int base) {
+        if (!debugLog || --logTimer > 0) return;
+        logTimer = 50;
+
+        unsigned int flags = 0;
+        if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, 0))
+            flags = *(unsigned int*)((uintptr_t)wi + 0x18);
+
+        void* wobj = *(void**)((uintptr_t)ped + WEAPON_OBJECT_OFFSET);
+        int miType = -1, miWeapon = -1;
+        if (wobj) {
+            CBaseModelInfo* mi = (CBaseModelInfo*)((MiFromRwObject_t)MODELINFO_FROM_RWOBJECT)(wobj);
+            if (mi) {
+                miType = (int)mi->GetModelType();
+                if (miType == MODEL_INFO_WEAPON) miWeapon = (int)((CWeaponModelInfo*)mi)->m_weaponInfo;
+            }
+        }
+
+        FILE* f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a");
+        if (!f) return;
+        fprintf(f, "wep=%d model=%d slot=%d flags=0x%X group=%d modBase=%d wobj=%s miType=%d miWep=%d "
+                   "body=%d FAT=%d MUSC=%d patched=%d\n",
+            type, model, slot, flags,
+            *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET), base,
+            wobj ? "yes" : "NULL", miType, miWeapon,
+            ((BodyBaseGroup_t)BODY_BASE_GROUP)(),
+            BlockLoaded("FAT") ? 1 : 0, BlockLoaded("MUSCULAR") ? 1 : 0, patched ? 1 : 0);
+        fclose(f);
+    }
+
     static void SetPatched(bool on) {
         if (on == patched) return;
         if (on) patch::Nop(WRITE_ADDR, 6);
@@ -211,6 +256,8 @@ public:
         else if (InList(jogWeapons, type, model)) base = JOG_BASE;
         else if (fireExtFix && InList(fireExtWeapons, type, model)) base = FIREEXT_BASE;
         else if (slot >= 0 && jogSlots.count(slot)) base = JOG_BASE;
+
+        LogPlayer(ped, type, model, slot, base);
 
         if (base < 0) { SetPatched(false); return; }
 
@@ -327,6 +374,8 @@ std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
 bool StoriesSprinting::aiGroupSprint = true;
+bool StoriesSprinting::debugLog = false;
+int StoriesSprinting::logTimer = 0;
 bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;

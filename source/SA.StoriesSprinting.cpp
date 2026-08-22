@@ -33,6 +33,9 @@ typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 // conversation gestures come from the gangs group; -8.0 is the blend delta the game
 // itself uses to end one
 static const float CHAT_BLEND_OUT = -8.0f;
+// prtial_gngtlkA..H - the gesture gangs throw while talking and after a kill
+static const int GANG_TALK_FIRST = 279;
+static const int GANG_TALK_LAST = 286;
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -101,10 +104,11 @@ public:
     static bool aiCombo;
     static bool aiGroupSprint;
     static bool noArmedHandSignals;
+    static bool noGangTaunts;
     static bool debugLog;
     static int logTimer;
     static int pedLogTimer;
-    static int nearLogTimer;
+    static std::vector<unsigned> nearSig;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
@@ -164,6 +168,7 @@ public:
         aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
         aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 1, f) != 0;
         noArmedHandSignals = GetPrivateProfileIntA("SA.StoriesSprinting", "NoArmedHandSignals", 0, f) != 0;
+        noGangTaunts = GetPrivateProfileIntA("SA.StoriesSprinting", "NoGangTaunts", 0, f) != 0;
         debugLog = GetPrivateProfileIntA("SA.StoriesSprinting", "DebugLog", 0, f) != 0;
 
         GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
@@ -214,12 +219,15 @@ public:
         return slot >= 0 && aiRifleSlots.count(slot) && !InList(jogWeapons, type, model);
     }
 
-    static void StopGangChatAnims(CPed* ped) {
+    // tauntOnly keeps the handshakes, smoking and leaning and drops just the gesture
+    static void StopGangChatAnims(CPed* ped, bool tauntOnly) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
         for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a; ) {
             CAnimBlendAssociation* next = RpAnimBlendGetNextAssociation(a);
-            if (a->m_nAnimGroup == ANIM_GROUP_GANGS && a->m_fBlendDelta >= 0.0f)
+            bool taunt = a->m_nAnimId >= GANG_TALK_FIRST && a->m_nAnimId <= GANG_TALK_LAST;
+            if (a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt)
+                && a->m_fBlendDelta >= 0.0f)
                 a->m_fBlendDelta = CHAT_BLEND_OUT;
             a = next;
         }
@@ -251,23 +259,29 @@ public:
             if (!ped || ped->m_pPlayerData) continue;
 
             int type = (int)ped->GetWeapon()->m_eWeaponType;
-            if (type == 0) continue;
-            int model = -1, slot = -1;
-            if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
-                model = wi->m_nModelId;
-                slot = (int)wi->m_nSlot;
+            bool armed = false;
+            if (noArmedHandSignals && type != 0) {
+                int model = -1, slot = -1;
+                if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
+                    model = wi->m_nModelId;
+                    slot = (int)wi->m_nSlot;
+                }
+                armed = IsTwoHanded(type, model, slot);
             }
-            if (!IsTwoHanded(type, model, slot)) continue;
-            if (ped->IsPlayingHandSignal()) ped->StopPlayingHandSignal();
-            StopGangChatAnims(ped);
-            if (debugLog && --pedLogTimer <= 0) { pedLogTimer = 100; LogPedAnims(ped, type); }
+
+            if (armed) {
+                if (ped->IsPlayingHandSignal()) ped->StopPlayingHandSignal();
+                StopGangChatAnims(ped, false);
+                if (debugLog && --pedLogTimer <= 0) { pedLogTimer = 100; LogPedAnims(ped, type); }
+            } else if (noGangTaunts) {
+                StopGangChatAnims(ped, true);
+            }
         }
     }
 
     // DebugLog=1: dump what nearby peds are playing, for identifying an anim by sight
     static void LogNearbyPedAnims() {
-        if (!debugLog || --nearLogTimer > 0) return;
-        nearLogTimer = 60;
+        if (!debugLog) return;
         CPlayerPed* player = FindPlayerPed();
         CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
         if (!player || !pool) return;
@@ -275,7 +289,7 @@ public:
 
         FILE* f = NULL;
         int shown = 0;
-        for (int i = 0; i < pool->m_nSize && shown < 4; i++) {
+        for (int i = 0; i < pool->m_nSize && shown < 8; i++) {
             CPed* ped = pool->GetAt(i);
             if (!ped || ped->m_pPlayerData || !ped->m_pRwObject) continue;
             CVector d = ped->GetPosition() - pp;
@@ -287,6 +301,14 @@ public:
                  a; a = RpAnimBlendGetNextAssociation(a))
                 if (a->m_nAnimGroup > 0 && a->m_nAnimGroup < 54) { interesting = true; break; }
             if (!interesting) continue;
+
+            unsigned sig = 0;
+            for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
+                 a; a = RpAnimBlendGetNextAssociation(a))
+                sig = sig * 131 + (unsigned)(a->m_nAnimGroup * 1000 + a->m_nAnimId);
+            if ((int)nearSig.size() != pool->m_nSize) nearSig.assign(pool->m_nSize, 0);
+            if (nearSig[i] == sig) continue;
+            nearSig[i] = sig;
 
             if (!f) { f = fopen((AsiFolder() + "SA.StoriesSprinting.log").c_str(), "a"); if (!f) return; }
             fprintf(f, "near type=%d wep=%d anims:", ped->m_nPedType,
@@ -351,7 +373,7 @@ public:
         SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
         if (aiWalkstyles) ProcessPeds();
         else ReleasePeds();
-        if (noArmedHandSignals) ProcessHandSignals();
+        if (noArmedHandSignals || noGangTaunts) ProcessHandSignals();
         LogNearbyPedAnims();
     }
 
@@ -500,10 +522,11 @@ bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
 bool StoriesSprinting::aiGroupSprint = true;
 bool StoriesSprinting::noArmedHandSignals = false;
+bool StoriesSprinting::noGangTaunts = false;
 bool StoriesSprinting::debugLog = false;
 int StoriesSprinting::logTimer = 0;
 int StoriesSprinting::pedLogTimer = 0;
-int StoriesSprinting::nearLogTimer = 0;
+std::vector<unsigned> StoriesSprinting::nearSig;
 bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;

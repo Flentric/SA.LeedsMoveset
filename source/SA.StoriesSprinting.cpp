@@ -361,7 +361,12 @@ public:
                 && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
                 group = JOG_BASE;
             else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
-            else if (slot >= 0 && aiRifleSlots.count(slot)) group = RIFLE_BASE;
+            // A weapon in the player's [JogWeapons] list is declared one-handed, so never
+            // let the slot fallback give it a two-handed carry. The sawn-off is why: its
+            // weapon.dat slot is 3 (shotguns) but its anim group lives in the colt45
+            // block with the pistols and SMGs, so it animates one-handed even dual-wielded.
+            else if (slot >= 0 && aiRifleSlots.count(slot)
+                && !InList(jogWeapons, type, model)) group = RIFLE_BASE;
             else if (aiCombo && slot >= 0 && jogSlots.count(slot)
                 && !InList(noJogWeapons, type, model)) group = JOG_BASE;
 

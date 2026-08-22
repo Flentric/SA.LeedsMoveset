@@ -93,11 +93,13 @@ public:
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
+    static bool noArmedHandSignals;
     static bool debugLog;
     static int logTimer;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
+    static bool noSkinny;
     static bool fireExtFix;
     static bool patched;
     static std::string iniPath;
@@ -129,6 +131,7 @@ public:
         const char* f = iniPath.c_str();
         noFat = GetPrivateProfileIntA("SA.StoriesSprinting", "NoFat1Armed", 0, f) != 0;
         noMuscle = GetPrivateProfileIntA("SA.StoriesSprinting", "NoMuscle1Armed", 0, f) != 0;
+        noSkinny = GetPrivateProfileIntA("SA.StoriesSprinting", "NoSkinny1Armed", 0, f) != 0;
         fireExtFix = GetPrivateProfileIntA("SA.StoriesSprinting", "FireExtinguisherWalkstyleFix", 1, f) != 0;
 
         char buf[2048];
@@ -151,6 +154,7 @@ public:
         aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
         aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 1, f) != 0;
+        noArmedHandSignals = GetPrivateProfileIntA("SA.StoriesSprinting", "NoArmedHandSignals", 0, f) != 0;
         debugLog = GetPrivateProfileIntA("SA.StoriesSprinting", "DebugLog", 0, f) != 0;
 
         GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
@@ -188,6 +192,36 @@ public:
     // weapon type (vanilla) or model id (addon)
     static bool InList(const std::set<int>& s, int type, int model) {
         return s.count(type) || (model > 0 && s.count(model));
+    }
+
+    // the same notion of two-handed the walkstyle lists use
+    static bool IsTwoHanded(int type, int model, int slot) {
+        if (InList(aiRocketWeapons, type, model)) return true;
+        if (InList(aiRifleWeapons, type, model)) return true;
+        if (InList(aiHeavyWeapons, type, model)) return true;
+        return slot >= 0 && aiRifleSlots.count(slot) && !InList(jogWeapons, type, model);
+    }
+
+    // gang signs are a task; the game picks handsignalL when the ped is armed, so a ped
+    // with a rifle waves it around mid-conversation. Abort the task and let them talk.
+    static void ProcessHandSignals() {
+        CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
+        if (!pool) return;
+
+        for (int i = 0; i < pool->m_nSize; i++) {
+            CPed* ped = pool->GetAt(i);
+            if (!ped || ped->m_pPlayerData) continue;
+
+            int type = (int)ped->GetWeapon()->m_eWeaponType;
+            if (type == 0) continue;
+            int model = -1, slot = -1;
+            if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
+                model = wi->m_nModelId;
+                slot = (int)wi->m_nSlot;
+            }
+            if (IsTwoHanded(type, model, slot) && ped->IsPlayingHandSignal())
+                ped->StopPlayingHandSignal();
+        }
     }
 
     // let peds in the player's group sprint from their own walkstyle group
@@ -241,6 +275,7 @@ public:
         SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
         if (aiWalkstyles) ProcessPeds();
         else ReleasePeds();
+        if (noArmedHandSignals) ProcessHandSignals();
     }
 
     static void ProcessPlayer() {
@@ -276,6 +311,9 @@ public:
         } else if (musc > 500.0f && musc >= fat) {
             if (!noMuscle && BlockLoaded("MUSCULAR")) group = base + 2;
         }
+
+        // skinny = neither variant applied, i.e. CJ is on the plain ped anims
+        if (noSkinny && group == base) { SetPatched(false); return; }
 
         SetPatched(true);
         *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET) = group;
@@ -381,11 +419,13 @@ std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
 bool StoriesSprinting::aiGroupSprint = true;
+bool StoriesSprinting::noArmedHandSignals = false;
 bool StoriesSprinting::debugLog = false;
 int StoriesSprinting::logTimer = 0;
 bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;
+bool StoriesSprinting::noSkinny = false;
 bool StoriesSprinting::fireExtFix = true;
 bool StoriesSprinting::patched = false;
 std::string StoriesSprinting::iniPath;

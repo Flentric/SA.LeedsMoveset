@@ -36,6 +36,8 @@ static const float CHAT_BLEND_OUT = -8.0f;
 // prtial_gngtlkA..H - the gesture gangs throw while talking and after a kill
 static const int GANG_TALK_FIRST = 279;
 static const int GANG_TALK_LAST = 286;
+// slot 4 of a move anim group - the arms-out wave peds also throw after a kill
+static const int ROADCROSS_SLOT = 4;
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -223,11 +225,13 @@ public:
     static void StopGangChatAnims(CPed* ped, bool tauntOnly) {
         RpClump* clump = (RpClump*)ped->m_pRwObject;
         if (!clump) return;
+        int moveGroup = *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
         for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation(clump); a; ) {
             CAnimBlendAssociation* next = RpAnimBlendGetNextAssociation(a);
             bool taunt = a->m_nAnimId >= GANG_TALK_FIRST && a->m_nAnimId <= GANG_TALK_LAST;
-            if (a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt)
-                && a->m_fBlendDelta >= 0.0f)
+            bool gang = a->m_nAnimGroup == ANIM_GROUP_GANGS && (!tauntOnly || taunt);
+            bool roadcross = a->m_nAnimGroup == moveGroup && a->m_nAnimId == ROADCROSS_SLOT;
+            if ((gang || roadcross) && a->m_fBlendDelta >= 0.0f)
                 a->m_fBlendDelta = CHAT_BLEND_OUT;
             a = next;
         }

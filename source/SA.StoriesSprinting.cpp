@@ -29,6 +29,13 @@ static const int WALK_GROUP_OFFSET = 0x4D4;
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
+// CTaskManager::FindActiveTaskByType, and the gang conversation gesture task, which
+// blends the gangs group over the top of whatever the ped is holding
+static const uintptr_t FIND_ACTIVE_TASK_BY_TYPE = 0x681740;
+static const int TASK_GANG_CHAT_ANIM = 0x4C0;
+typedef void* (__thiscall* FindActiveTaskByType_t)(void*, int);
+typedef bool (__thiscall* MakeAbortable_t)(void*, CPed*, int, void*);
+
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
 static const unsigned char GROUP_SPRINT_ORIG[2] = { 0x6A, 0x36 }; // push 54
@@ -39,6 +46,7 @@ static const unsigned char GROUP_SPRINT_OWN[2] = { 0x57, 0x90 };  // push edi ; 
 static const uintptr_t MODELINFO_FROM_RWOBJECT = 0x732AC0;
 static const uintptr_t BODY_BASE_GROUP = 0x5A81B0; // 54/55/56, itself falls back to 54
 static const int WEAPON_OBJECT_OFFSET = 0x4F4;
+static const int INTELLIGENCE_OFFSET = 0x47C;
 
 // GetWeaponInfo indexes by skill: 0 is aWeaponInfo[type+25], 1 is aWeaponInfo[type],
 // 2 is aWeaponInfo[type+36]. Only 1 lands on the weapon asked for.
@@ -202,8 +210,19 @@ public:
         return slot >= 0 && aiRifleSlots.count(slot) && !InList(jogWeapons, type, model);
     }
 
-    // gang signs are a task; the game picks handsignalL when the ped is armed, so a ped
-    // with a rifle waves it around mid-conversation. Abort the task and let them talk.
+    // same abort the game does in CPed::StopPlayingHandSignal
+    static void AbortTask(CPed* ped, int taskType) {
+        void* intel = *(void**)((uintptr_t)ped + INTELLIGENCE_OFFSET);
+        if (!intel) return;
+        void* task = ((FindActiveTaskByType_t)FIND_ACTIVE_TASK_BY_TYPE)((char*)intel + 4, taskType);
+        if (!task) return;
+        void** vt = *(void***)task;
+        ((MakeAbortable_t)vt[6])(task, ped, 1, nullptr);
+    }
+
+    // gang signs and conversation gestures are tasks; the game picks handsignalL when the
+    // ped is armed, so a rifle or minigun gets waved about mid-conversation. Abort both
+    // and let them talk with the weapon held.
     static void ProcessHandSignals() {
         CPool<CPed, CCopPed>* pool = CPools::ms_pPedPool;
         if (!pool) return;
@@ -219,8 +238,9 @@ public:
                 model = wi->m_nModelId;
                 slot = (int)wi->m_nSlot;
             }
-            if (IsTwoHanded(type, model, slot) && ped->IsPlayingHandSignal())
-                ped->StopPlayingHandSignal();
+            if (!IsTwoHanded(type, model, slot)) continue;
+            if (ped->IsPlayingHandSignal()) ped->StopPlayingHandSignal();
+            AbortTask(ped, TASK_GANG_CHAT_ANIM);
         }
     }
 

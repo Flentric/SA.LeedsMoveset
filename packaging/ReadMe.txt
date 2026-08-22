@@ -107,7 +107,7 @@ Other options:
                              weapons in [JogWeapons]. Off by default.
   AIGroupSprintFix         - peds in your group sprint from their own
                              walkstyle instead of the plain civilian
-                             sprint the game forces. 1 = on (default).
+                             sprint the game forces. Off by default.
   NoArmedHandSignals       - stop peds throwing gang signs and chatting
                              gestures while holding a two-handed weapon.
                              They still talk. Off by default.

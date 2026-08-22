@@ -173,7 +173,7 @@ public:
 
         aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
-        aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 1, f) != 0;
+        aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 0, f) != 0;
         noArmedHandSignals = GetPrivateProfileIntA("SA.StoriesSprinting", "NoArmedHandSignals", 0, f) != 0;
         noGangTaunts = GetPrivateProfileIntA("SA.StoriesSprinting", "NoGangTaunts", 0, f) != 0;
         debugLog = GetPrivateProfileIntA("SA.StoriesSprinting", "DebugLog", 0, f) != 0;
@@ -537,7 +537,7 @@ std::set<int> StoriesSprinting::aiJogPedTypes;
 std::vector<PedWalkstyle> StoriesSprinting::pedWalk;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
-bool StoriesSprinting::aiGroupSprint = true;
+bool StoriesSprinting::aiGroupSprint = false;
 bool StoriesSprinting::noArmedHandSignals = false;
 bool StoriesSprinting::noGangTaunts = false;
 bool StoriesSprinting::debugLog = false;

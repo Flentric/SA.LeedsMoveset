@@ -29,6 +29,11 @@ holding it one-handed. Set `AIWeaponWalkstyles=1` to turn it on (off by default)
 the weapon lists live under `[AIWalkstyles]`, with a `RifleSlots` fallback so
 add-on long guns are covered without listing them.
 
+`AIGroupSprintFix=1` (on by default) fixes a hardcoded game behaviour: peds in
+the player's group sprint with the plain civilian sprint no matter what they are
+carrying, so a homie with a rifle sprints one-handed. It patches
+`CPed::SetMoveAnim` to sprint from the ped's own walkstyle group instead.
+
 `AIStoriesSprintingCombo=1` additionally lets peds use the one-handed jog from
 `[JogWeapons]` (and the fire-extinguisher walkstyle from `[FireExtWeapons]`).
 Off by default. The fire-extinguisher fix itself is the mod's existing

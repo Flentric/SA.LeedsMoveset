@@ -25,6 +25,12 @@ static const int WALK_GROUP_OFFSET = 0x4D4;
 static const uintptr_t RELOAD_MOVE_ANIMS = 0x609650;
 typedef void(__thiscall* ReloadMoveAnims_t)(void*);
 
+// push 54 ("player") in CPed::SetMoveAnim's sprint case - the game hardcodes the
+// plain civilian sprint for peds in the player's group, ignoring their own group
+static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
+static const unsigned char GROUP_SPRINT_ORIG[2] = { 0x6A, 0x36 }; // push 54
+static const unsigned char GROUP_SPRINT_OWN[2] = { 0x57, 0x90 };  // push edi ; nop
+
 // walkstyle groups: 57 playerrocket, 60 player2armed, 63 playerBBBat (the jog),
 // 66 playercsaw (fire-ext); each is followed by its fat and muscular variant
 static const int ROCKET_BASE = 57;
@@ -59,6 +65,8 @@ public:
     static std::set<int> aiRifleSlots;
     static bool aiWalkstyles;
     static bool aiCombo;
+    static bool aiGroupSprint;
+    static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
     static bool fireExtFix;
@@ -113,6 +121,7 @@ public:
 
         aiWalkstyles = GetPrivateProfileIntA("SA.StoriesSprinting", "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA("SA.StoriesSprinting", "AIStoriesSprintingCombo", 0, f) != 0;
+        aiGroupSprint = GetPrivateProfileIntA("SA.StoriesSprinting", "AIGroupSprintFix", 1, f) != 0;
 
         GetPrivateProfileStringA("AIWalkstyles", "RocketWeapons", "35,36", buf, sizeof(buf), f);
         ParseIds(buf, aiRocketWeapons);
@@ -145,6 +154,13 @@ public:
         return s.count(type) || (model > 0 && s.count(model));
     }
 
+    // let peds in the player's group sprint from their own walkstyle group
+    static void SetGroupSprintPatched(bool on) {
+        if (on == groupSprintPatched) return;
+        patch::SetRaw(GROUP_SPRINT_ADDR, (void*)(on ? GROUP_SPRINT_OWN : GROUP_SPRINT_ORIG), 2);
+        groupSprintPatched = on;
+    }
+
     static void SetPatched(bool on) {
         if (on == patched) return;
         if (on) patch::Nop(WRITE_ADDR, 6);
@@ -155,6 +171,7 @@ public:
     static void Process() {
         if (--reloadTimer <= 0) { LoadConfig(); reloadTimer = 100; }
         ProcessPlayer();
+        SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
         if (aiWalkstyles) ProcessPeds();
     }
 
@@ -269,6 +286,8 @@ std::set<int> StoriesSprinting::aiHeavyWeapons;
 std::set<int> StoriesSprinting::aiRifleSlots;
 bool StoriesSprinting::aiWalkstyles = false;
 bool StoriesSprinting::aiCombo = false;
+bool StoriesSprinting::aiGroupSprint = true;
+bool StoriesSprinting::groupSprintPatched = false;
 bool StoriesSprinting::noFat = false;
 bool StoriesSprinting::noMuscle = false;
 bool StoriesSprinting::fireExtFix = true;

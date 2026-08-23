@@ -12,6 +12,7 @@
 #include "CPedModelInfo.h"
 #include "CWeaponModelInfo.h"
 #include "CAnimBlendAssociation.h"
+#include "CAnimBlendStaticAssociation.h"
 #include "eStats.h"
 #include <windows.h>
 #include <string>
@@ -36,6 +37,8 @@ static const float CHAT_BLEND_OUT = -8.0f;
 // prtial_gngtlkA..H - the gesture gangs throw while talking and after a kill
 static const int GANG_TALK_FIRST = 279;
 static const int GANG_TALK_LAST = 286;
+// a move anim group is six slots: 0 walk, 1 run, 2 sprint, 3 idle, 4 roadcross, 5 walkstart
+static const int RUN_SLOT = 1;
 // slot 4 of a move anim group - the arms-out wave peds also throw after a kill
 static const int ROADCROSS_SLOT = 4;
 // move anim groups: 54-71 are the player/weapon ones, 118+ come from animgrp.dat
@@ -68,6 +71,15 @@ static const int ROCKET_BASE = 57;
 static const int RIFLE_BASE = 60;
 static const int JOG_BASE = 63;
 static const int FIREEXT_BASE = 66;
+// the same six-slot layout, but slot 1 is not a run in either - keep the jog out of them
+static const int JETPACK_GROUP = 70;
+static const int SWIM_GROUP = 71;
+
+// the assoc groups are allocated at load and only the BASE POINTER lives here
+// (mov [0xB4EA34], edi @ 0x4D56BF; every game read derefs it, e.g. 0x4D3A64).
+// plugin-sdk's CAnimManager::ms_aAnimAssocGroups points at the pointer itself, so it
+// indexes 0xB4EA34 as if it were the array - do not use it.
+static const uintptr_t ANIM_ASSOC_GROUPS = 0xB4EA34;
 
 // anim-pointer redirects (formerly eASIer's sprint.txt)
 struct AnimPatch { uintptr_t dest; unsigned int value; };
@@ -87,9 +99,10 @@ static const AnimPatch g_animPatches[] = {
 struct PedWalkstyle {
     unsigned char id;
     bool active;
+    bool jogging;      // we swapped the run slot rather than the whole walkstyle
     int ourGroup;
     int savedGroup;
-    PedWalkstyle() : id(0), active(false), ourGroup(0), savedGroup(0) {}
+    PedWalkstyle() : id(0), active(false), jogging(false), ourGroup(0), savedGroup(0) {}
 };
 
 class LeedsMoveset {
@@ -115,6 +128,7 @@ public:
     static bool debugLog;
     static int logTimer;
     static int pedLogTimer;
+    static int jogLogTimer;
     static std::vector<unsigned> nearSig;
     static bool groupSprintPatched;
     static bool noFat;
@@ -468,6 +482,102 @@ public:
         if (ped->m_pRwObject) ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
     }
 
+    // a group's static association, bounds-checked - CAnimBlendAssocGroup::GetAnimation
+    // indexes into the array without checking anything itself
+    static CAnimBlendStaticAssociation* StaticAssoc(int group, int slot) {
+        if (group < 0 || group >= CAnimManager::ms_numAnimAssocDefinitions) return NULL;
+        CAnimBlendAssocGroup* groups = *(CAnimBlendAssocGroup**)ANIM_ASSOC_GROUPS;
+        if (!groups) return NULL;
+        CAnimBlendAssocGroup& g = groups[group];
+        if (!g.m_pAssociations) return NULL;
+        int i = slot - g.m_nIdOffset;
+        if (i < 0 || i >= (int)g.m_nNumAnimations) return NULL;
+        return &g.m_pAssociations[i];
+    }
+
+    static bool IsWalkstyleGroup(int g) {
+        return IsMoveAnimGroup(g) && g != JETPACK_GROUP && g != SWIM_GROUP;
+    }
+
+    // Give a ped the jog without taking its walkstyle away. Writing 63 into 0x4D4 hands it
+    // CJ's walk, sprint and idle as well, which is not what the jog is for; instead point
+    // the ped's OWN group's run slot at the jog just long enough for ReApplyMoveAnims to
+    // rebuild that one association. That call only rebuilds a slot whose anim differs and
+    // carries the old blend amount across, so the other slots are left alone and the swap
+    // does not pop. Init copies the nodes out of m_pSequenceArray, not the hierarchy, so
+    // the whole animation half of the association has to move - the id and group stay put
+    // and the rebuilt association still reports the ped's real walkstyle.
+    static bool ApplyJogRun(CPed* ped) {
+        RpClump* clump = (RpClump*)ped->m_pRwObject;
+        if (!clump) return false;
+        CAnimBlendStaticAssociation* jog = StaticAssoc(JOG_BASE, RUN_SLOT);
+        if (!jog || !jog->m_pHeirarchy) return false;
+
+        // associations are looked up by anim id alone, so check the group before touching one
+        CAnimBlendAssociation* live = RpAnimBlendClumpGetAssociation(clump, RUN_SLOT);
+        if (!live || !IsMoveAnimGroup(live->m_nAnimGroup)) return true;
+        if (live->m_pHierarchy == jog->m_pHeirarchy) return true;
+
+        int group = *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
+        if (!IsWalkstyleGroup(group)) return false;
+        CAnimBlendStaticAssociation* own = StaticAssoc(group, RUN_SLOT);
+        if (!own) return false;
+
+        unsigned short nodes = own->m_nNumBlendNodes, flags = own->m_nFlags;
+        CAnimBlendSequence** seq = own->m_pSequenceArray;
+        CAnimBlendHierarchy* hier = own->m_pHeirarchy;
+
+        own->m_nNumBlendNodes = jog->m_nNumBlendNodes;
+        own->m_nFlags = jog->m_nFlags;
+        own->m_pSequenceArray = jog->m_pSequenceArray;
+        own->m_pHeirarchy = jog->m_pHeirarchy;
+
+        ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
+
+        own->m_nNumBlendNodes = nodes;
+        own->m_nFlags = flags;
+        own->m_pSequenceArray = seq;
+        own->m_pHeirarchy = hier;
+        return true;
+    }
+
+    // DebugLog=1: why a ped picked for the jog did or did not get it
+    static void LogJog(CPed* ped, int type, bool applied) {
+        if (!debugLog || --jogLogTimer > 0) return;
+        jogLogTimer = 100;
+        RpClump* clump = (RpClump*)ped->m_pRwObject;
+        CAnimBlendStaticAssociation* jog = StaticAssoc(JOG_BASE, RUN_SLOT);
+        int group = *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
+        CAnimBlendStaticAssociation* own = StaticAssoc(group, RUN_SLOT);
+        CAnimBlendAssociation* live = clump ? RpAnimBlendClumpGetAssociation(clump, RUN_SLOT) : NULL;
+        FILE* f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a");
+        if (!f) return;
+        fprintf(f, "jog wep=%d group=%d applied=%d jogAssoc=%p ownAssoc=%p live=%p "
+                   "liveGroup=%d liveHier=%p jogHier=%p\n",
+            type, group, applied ? 1 : 0, (void*)jog, (void*)own, (void*)live,
+            live ? (int)live->m_nAnimGroup : -1,
+            live ? (void*)live->m_pHierarchy : NULL,
+            jog ? (void*)jog->m_pHeirarchy : NULL);
+        fclose(f);
+    }
+
+    // put the ped's own run back - its run slot no longer matches its group, so the same
+    // call rebuilds it from the walkstyle the ped actually has
+    static void ClearJogRun(CPed* ped) {
+        RpClump* clump = (RpClump*)ped->m_pRwObject;
+        if (!clump) return;
+        CAnimBlendStaticAssociation* jog = StaticAssoc(JOG_BASE, RUN_SLOT);
+        CAnimBlendAssociation* live = RpAnimBlendClumpGetAssociation(clump, RUN_SLOT);
+        if (!jog || !live || live->m_pHierarchy != jog->m_pHeirarchy) return;
+        ((ReloadMoveAnims_t)RELOAD_MOVE_ANIMS)(ped);
+    }
+
+    // drop both kinds of override at once
+    static void ReleasePed(PedWalkstyle& rec, CPed* ped) {
+        if (rec.jogging) { ClearJogRun(ped); rec.jogging = false; }
+        RestorePed(rec, ped);
+    }
+
     // called when the feature gets switched off mid-game, so nobody stays overridden
     static void ReleasePeds() {
         if (pedWalk.empty()) return;
@@ -476,7 +586,7 @@ public:
             int n = pool->m_nSize < (int)pedWalk.size() ? pool->m_nSize : (int)pedWalk.size();
             for (int i = 0; i < n; i++) {
                 CPed* ped = pool->GetAt(i);
-                if (ped && pool->GetIdAt(i) == pedWalk[i].id) RestorePed(pedWalk[i], ped);
+                if (ped && pool->GetIdAt(i) == pedWalk[i].id) ReleasePed(pedWalk[i], ped);
             }
         }
         pedWalk.clear();
@@ -491,11 +601,11 @@ public:
         for (int i = 0; i < pool->m_nSize; i++) {
             PedWalkstyle& rec = pedWalk[i];
             CPed* ped = pool->GetAt(i);
-            if (!ped) { rec.active = false; continue; }
+            if (!ped) { rec.active = false; rec.jogging = false; continue; }
             // the pool reuses slots; its id byte changes, so any saved group is stale
             unsigned char id = pool->GetIdAt(i);
-            if (rec.id != id) { rec.id = id; rec.active = false; }
-            if (ped->m_pPlayerData) { rec.active = false; continue; }
+            if (rec.id != id) { rec.id = id; rec.active = false; rec.jogging = false; }
+            if (ped->m_pPlayerData) { rec.active = false; rec.jogging = false; continue; }
 
             int type = (int)ped->GetWeapon()->m_eWeaponType;
             int model = -1, slot = -1;
@@ -507,25 +617,37 @@ public:
             //   IgnoreWeapons > RocketWeapons > RifleWeapons > HeavyWeapons > JogWeapons >
             //   [combo] BatWeapons + JogWeapons > [combo] FireExtWeapons > RifleSlots
             //   fallback > [combo] JogSlots fallback > the ped's own walkstyle.
+            // The carry styles are whole groups; the jog is only the run slot, so a ped
+            // that jogs still walks, sprints and idles on the walkstyle it came with.
             bool mayJog = aiJogPedTypes.empty() || aiJogPedTypes.count(ped->m_nPedType) != 0;
 
             int group = -1;
+            bool jogRun = false;
             if (InList(aiIgnoreWeapons, type, model)) group = -1;
             else if (InList(aiRocketWeapons, type, model)) group = ROCKET_BASE;
             else if (InList(aiRifleWeapons, type, model)) group = RIFLE_BASE;
             else if (InList(aiHeavyWeapons, type, model)) group = FIREEXT_BASE;
             else if (mayJog && !InList(noJogWeapons, type, model)
-                && InList(aiJogWeapons, type, model)) group = JOG_BASE;
+                && InList(aiJogWeapons, type, model)) jogRun = true;
             else if (aiCombo && mayJog && !InList(noJogWeapons, type, model)
                 && (InList(aiBatWeapons, type, model) || InList(jogWeapons, type, model)))
-                group = JOG_BASE;
+                jogRun = true;
             else if (aiCombo && fireExtFix && InList(fireExtWeapons, type, model)) group = FIREEXT_BASE;
             // [JogWeapons] declares a weapon one-handed - keeps the sawn-off out of the
             // rifle carry, its slot is 3 but it animates from the colt45 block
             else if (slot >= 0 && aiRifleSlots.count(slot)
                 && !InList(jogWeapons, type, model)) group = RIFLE_BASE;
             else if (aiCombo && mayJog && slot >= 0 && jogSlots.count(slot)
-                && !InList(noJogWeapons, type, model)) group = JOG_BASE;
+                && !InList(noJogWeapons, type, model)) jogRun = true;
+
+            // hand a carry group back before jogging, so the run swap sits on the ped's own
+            if (jogRun) {
+                RestorePed(rec, ped);
+                rec.jogging = ApplyJogRun(ped);
+                LogJog(ped, type, rec.jogging);
+                continue;
+            }
+            if (rec.jogging) { ClearJogRun(ped); rec.jogging = false; }
 
             int* cur = (int*)((uintptr_t)ped + WALK_GROUP_OFFSET);
             if (group < 0) { RestorePed(rec, ped); continue; }
@@ -562,6 +684,7 @@ bool LeedsMoveset::noGangTaunts = false;
 bool LeedsMoveset::debugLog = false;
 int LeedsMoveset::logTimer = 0;
 int LeedsMoveset::pedLogTimer = 0;
+int LeedsMoveset::jogLogTimer = 0;
 std::vector<unsigned> LeedsMoveset::nearSig;
 bool LeedsMoveset::groupSprintPatched = false;
 bool LeedsMoveset::noFat = false;

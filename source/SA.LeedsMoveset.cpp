@@ -193,7 +193,7 @@ public:
 
         char buf[2048];
         GetPrivateProfileStringA("JogWeapons", "Weapons",
-            "2,8,10,12,14,15,22,23,24,26,28,29,32,43", buf, sizeof(buf), f);
+            "2,8,10,12,14,15,22,23,24,26,28,29,32", buf, sizeof(buf), f);
         ParseIds(buf, jogWeapons);
 
         // Fallback: any weapon whose weapon.dat slot is listed here jogs unless overridden above.

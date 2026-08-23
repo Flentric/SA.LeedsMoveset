@@ -117,11 +117,10 @@ The lists live in [AIWalkstyles] and take the same TYPE or MODEL ids:
   JogWeapons           - peds only: force the one-handed jog on these,
                          without turning the whole combo on.
   IgnoreWeapons        - peds only: leave the ped's own walkstyle alone.
-  JogPedTypes          - which peds may jog at all. EMPTY (the default)
-                         means every ped, so set it if you only want,
-                         say, cops and gangs jogging and ordinary
-                         civilians running normally. Gates the jog only,
-                         never the rifle or rocket carry styles.
+  JogPedTypes          - which peds may jog at all. Ships as cops and
+                         every gang, so ordinary civilians keep their own
+                         run. Set it EMPTY for every ped. Gates the jog
+                         only, never the rifle or rocket carry styles.
 
 Other options:
   AIStoriesSprintingCombo  - peds also use the one-handed jog for the

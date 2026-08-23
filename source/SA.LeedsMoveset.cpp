@@ -246,7 +246,7 @@ public:
         GetPrivateProfileStringA("AIWalkstyles", "IgnoreWeapons", "", buf, sizeof(buf), f);
         ParseIds(buf, aiIgnoreWeapons);
 
-        GetPrivateProfileStringA("AIWalkstyles", "JogPedTypes", "", buf, sizeof(buf), f);
+        GetPrivateProfileStringA("AIWalkstyles", "JogPedTypes", "6,7,8,9,10,11,12,13,14,15,16", buf, sizeof(buf), f);
         ParseIds(buf, aiJogPedTypes);
     }
 

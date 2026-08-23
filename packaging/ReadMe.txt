@@ -24,6 +24,9 @@ configurable, including fastman92 add-on weapons. It also absorbs
 - Settings reload live while you play - edit the INI and it applies.
 - AI Weapon Walkstyles (optional): peds carry rifles and rocket launchers
   properly instead of holding them one-handed.
+- Player Weapon Walkstyles (optional): choose how CJ carries a weapon -
+  its walk, run and armed idle - so an add-on weapon such as a large SMG
+  can be held like an assault rifle instead of one-handed.
 - Fixed: with AIStoriesSprintingCombo on, peds took the whole player
   walkstyle and so walked, sprinted and idled like CJ. The jog now
   replaces only a ped's running animation - it keeps the walk, sprint
@@ -74,6 +77,15 @@ That's it. The folder contains everything:
 [JogSlots]       - fallback: any weapon whose weapon.dat slot is listed
                    jogs, so add-on weapons work without being listed.
 [NoJogWeapons]   - weapons that must never jog. Overrides everything.
+[PlayerWalkstyles] - how CJ CARRIES a weapon: its walk, run and armed
+                   idle. RifleWeapons holds it like an assault rifle,
+                   RocketWeapons like an RPG, HeavyWeapons like a
+                   chainsaw. Wins over the lists above. Needs
+                   PlayerWeaponWalkstyles=1. CJ only, and unrelated to
+                   the AI settings - peds have their own equivalent
+                   under [AIWalkstyles]. Note this changes how a weapon
+                   is carried, not how it is aimed or fired; that comes
+                   from its anim group in weapon.dat.
 
 You can list either a weapon TYPE id (vanilla weapons) or a weapon's
 MODEL id (fastman92 add-on weapons) - both are matched. Separate ids with

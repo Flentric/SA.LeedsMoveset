@@ -112,6 +112,9 @@ public:
     static std::set<int> noJogWeapons;    // force-no-jog (priority OFF), overrides everything
     static std::set<int> jogSlots;        // weapon.dat slots that jog by default (fallback)
     static std::set<int> fireExtWeapons;
+    static std::set<int> pcRocketWeapons; // player-only carry styles
+    static std::set<int> pcRifleWeapons;
+    static std::set<int> pcHeavyWeapons;
     static std::set<int> aiRocketWeapons; // ped-only lists (AI walkstyles)
     static std::set<int> aiRifleWeapons;
     static std::set<int> aiBatWeapons;
@@ -120,6 +123,7 @@ public:
     static std::set<int> aiJogWeapons;   // ped-only jog, independent of the combo
     static std::set<int> aiIgnoreWeapons; // ped-only: leave the ped's own walkstyle alone
     static std::set<int> aiJogPedTypes;   // ped types allowed to jog; empty = all
+    static bool playerWalkstyles; // [PlayerWalkstyles], its own switch
     static bool aiWalkstyles;
     static bool aiCombo;
     static bool aiGroupSprint;
@@ -204,6 +208,16 @@ public:
         GetPrivateProfileStringA("FireExtWeapons", "Weapons", "42", buf, sizeof(buf), f);
         ParseIds(buf, fireExtWeapons);
 
+        GetPrivateProfileStringA("PlayerWalkstyles", "RocketWeapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, pcRocketWeapons);
+
+        GetPrivateProfileStringA("PlayerWalkstyles", "RifleWeapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, pcRifleWeapons);
+
+        GetPrivateProfileStringA("PlayerWalkstyles", "HeavyWeapons", "", buf, sizeof(buf), f);
+        ParseIds(buf, pcHeavyWeapons);
+
+        playerWalkstyles = GetPrivateProfileIntA(iniSection.c_str(), "PlayerWeaponWalkstyles", 0, f) != 0;
         aiWalkstyles = GetPrivateProfileIntA(iniSection.c_str(), "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA(iniSection.c_str(), "AIStoriesSprintingCombo", 0, f) != 0;
         aiGroupSprint = GetPrivateProfileIntA(iniSection.c_str(), "AIGroupSprintFix", 0, f) != 0;
@@ -440,13 +454,20 @@ public:
             slot = (int)wi->m_nSlot;
         }
 
-        // INI wins, weapon.dat slot is the fallback:
-        //   NoJogWeapons (off) > JogWeapons (on) > FireExtWeapons > JogSlots fallback > nothing.
+        // [PlayerWalkstyles] has its own switch, nothing to do with the AI settings, and is
+        // an explicit "carry it like this", so it wins outright;
+        // after that the INI lists win and the weapon.dat slot is the fallback:
+        //   PlayerWalkstyles Rocket > Rifle > Heavy > NoJogWeapons (off) > JogWeapons (on)
+        //   > FireExtWeapons > JogSlots fallback > nothing.
         int base = -1;
-        if (InList(noJogWeapons, type, model)) base = -1;
-        else if (InList(jogWeapons, type, model)) base = JOG_BASE;
-        else if (fireExtFix && InList(fireExtWeapons, type, model)) base = FIREEXT_BASE;
-        else if (slot >= 0 && jogSlots.count(slot)) base = JOG_BASE;
+        bool jogStyle = false; // the fat/muscular opt-outs below are about the jog only
+        if (playerWalkstyles && InList(pcRocketWeapons, type, model)) base = ROCKET_BASE;
+        else if (playerWalkstyles && InList(pcRifleWeapons, type, model)) base = RIFLE_BASE;
+        else if (playerWalkstyles && InList(pcHeavyWeapons, type, model)) base = FIREEXT_BASE;
+        else if (InList(noJogWeapons, type, model)) base = -1;
+        else if (InList(jogWeapons, type, model)) { base = JOG_BASE; jogStyle = true; }
+        else if (fireExtFix && InList(fireExtWeapons, type, model)) { base = FIREEXT_BASE; jogStyle = true; }
+        else if (slot >= 0 && jogSlots.count(slot)) { base = JOG_BASE; jogStyle = true; }
 
         LogPlayer(ped, type, model, slot, base);
 
@@ -456,13 +477,13 @@ public:
         float musc = CStats::GetStatValue(STAT_MUSCLE);
         int group = base;
         if (fat > 500.0f && fat >= musc) {
-            if (!noFat && BlockLoaded("FAT")) group = base + 1;
+            if ((!jogStyle || !noFat) && BlockLoaded("FAT")) group = base + 1;
         } else if (musc > 500.0f && musc >= fat) {
-            if (!noMuscle && BlockLoaded("MUSCULAR")) group = base + 2;
+            if ((!jogStyle || !noMuscle) && BlockLoaded("MUSCULAR")) group = base + 2;
         }
 
         // skinny = neither variant applied, i.e. CJ is on the plain ped anims
-        if (noSkinny && group == base) { SetPatched(false); return; }
+        if (jogStyle && noSkinny && group == base) { SetPatched(false); return; }
 
         SetPatched(true);
         *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET) = group;
@@ -667,6 +688,9 @@ std::set<int> LeedsMoveset::jogWeapons;
 std::set<int> LeedsMoveset::noJogWeapons;
 std::set<int> LeedsMoveset::jogSlots;
 std::set<int> LeedsMoveset::fireExtWeapons;
+std::set<int> LeedsMoveset::pcRocketWeapons;
+std::set<int> LeedsMoveset::pcRifleWeapons;
+std::set<int> LeedsMoveset::pcHeavyWeapons;
 std::set<int> LeedsMoveset::aiRocketWeapons;
 std::set<int> LeedsMoveset::aiRifleWeapons;
 std::set<int> LeedsMoveset::aiBatWeapons;
@@ -676,6 +700,7 @@ std::set<int> LeedsMoveset::aiJogWeapons;
 std::set<int> LeedsMoveset::aiIgnoreWeapons;
 std::set<int> LeedsMoveset::aiJogPedTypes;
 std::vector<PedWalkstyle> LeedsMoveset::pedWalk;
+bool LeedsMoveset::playerWalkstyles = false;
 bool LeedsMoveset::aiWalkstyles = false;
 bool LeedsMoveset::aiCombo = false;
 bool LeedsMoveset::aiGroupSprint = false;

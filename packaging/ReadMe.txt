@@ -27,6 +27,13 @@ configurable, including fastman92 add-on weapons. It also absorbs
 - Player Weapon Walkstyles (optional): choose how CJ carries a weapon -
   its walk, run and armed idle - so an add-on weapon such as a large SMG
   can be held like an assault rifle instead of one-handed.
+- Sprint on any surface (optional): removes the surfinfo.dat restriction
+  that stops CJ sprinting indoors and in a few other spots.
+- Detonator animation (optional): restores the unused "bomber" animation
+  for the satchel detonator, with the explosion synced to it.
+- Fixed: peds carrying a prop no longer stand as if holding their weapon
+  two-handed, and the jetpack keeps its own idle - CJ holds the handles
+  again instead of leaving his arms at his sides.
 - Fixed: with AIStoriesSprintingCombo on, peds took the whole player
   walkstyle and so walked, sprinted and idled like CJ. The jog now
   replaces only a ped's running animation - it keeps the walk, sprint
@@ -97,6 +104,20 @@ Other options:
   NoSkinny1Armed                      - disable the jog when CJ is on the
                                         plain ped anims.
   FireExtinguisherWalkstyleFix        - 1 = on (default).
+  SprintOnAnySurface                  - lifts the "can't sprint on" flag
+                                        that surfinfo.dat sets on some
+                                        surfaces, so CJ can sprint indoors
+                                        and anywhere else it was blocked.
+                                        Done at runtime, so surfinfo.dat
+                                        is left alone and no other mod
+                                        that edits it is disturbed.
+                                        Off by default.
+  DetonatorAnimation                  - plays "bomber", the detonator
+                                        animation left unused in ped.ifp,
+                                        and sets the charges off in time
+                                        with it. DetonatorAnimationDelay
+                                        tunes when the bang lands.
+                                        Off by default.
 
 
 ------------------------------------------------------------------------
@@ -134,6 +155,11 @@ Other options:
   NoArmedHandSignals       - stop peds throwing gang signs and chatting
                              gestures while holding a two-handed weapon.
                              They still talk. Off by default.
+  IgnorePedTypes           - ped types to leave completely alone, for
+                             scripted peds that should keep whatever the
+                             mission gave them. Empty by default; peds
+                             carrying a prop are already skipped on their
+                             own.
   DebugLog                 - writes SA.LeedsMoveset.log next to the
                              ASI, for tracking down walkstyle reports.
 

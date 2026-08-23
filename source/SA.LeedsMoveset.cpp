@@ -158,7 +158,6 @@ public:
     static int logTimer;
     static int pedLogTimer;
     static int jogLogTimer;
-    static int detLogTimer;
     static std::vector<unsigned> nearSig;
     static bool detonatorAnim;
     static bool detonatorFiring;
@@ -461,27 +460,16 @@ public:
         sprintPatched = on;
     }
 
-    // Play "bomber" when the detonator is pressed. Edge-triggered on the fire button so
-    // it fires once per press rather than restarting every frame the button is held.
-    static void DetLog(const char* what, int type, int prev, int btn, void* assoc) {
-        FILE* f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a");
-        if (!f) return;
-        fprintf(f, "det %s wep=%d prev=%d btn=%d assoc=%p\n", what, type, prev, btn, assoc);
-        fclose(f);
-    }
-
-    // Runs straight after CPad::UpdatePads, so the pad is fresh and nothing has read it
-    // yet. Swallow the press so the game never detonates, start "bomber", then set the
-    // charges off ourselves at the point in the animation where CJ's hand comes down.
+    // Plays "bomber", the detonator animation still sitting unused in ped.ifp, and
+    // syncs the charges to it. Runs straight after CPad::UpdatePads so the pad is fresh
+    // and nothing has read it: the press is swallowed, the animation starts, and the
+    // charges go off on our own clock at the point CJ's hand comes down. The game's own
+    // fire handling never runs, so the spent detonator is taken off him here too.
     //
-    // The timing approach is Cleomodlar's: their "Unused Detonator" CLEO showed that the
-    // way to sync this is to stop waiting on the game and drive both halves yourself -
-    // animate, wait, then detonate through the same call opcode 09D9 makes
-    // (CProjectileInfo::RemoveDetonatorProjectiles). A script gets in front of the fire
-    // for free because scripts run before the weapon is processed; from an ASI it takes
-    // the pad redirect above. Clearing the spent detonator afterwards is theirs too - it
-    // is the "0555: remove_weapon 40" their script ends on, and it is part of the same
-    // fix rather than a separate option.
+    // The approach is Cleomodlar's, from their "Unused Detonator" CLEO - drive both
+    // halves yourself rather than waiting on the game, detonate through the same call
+    // opcode 09D9 makes, then clear the detonator. A script gets in front of the fire
+    // for free; from an ASI it takes the pad redirect above.
     static void ProcessDetonator() {
         CPlayerPed* ped = FindPlayerPed();
         CPad* pad = CPad::GetPad(0);
@@ -493,13 +481,8 @@ public:
             pad->NewState.ButtonCircle = 0;
             if (CTimer::m_snTimeInMilliseconds >= detFireAt) {
                 CProjectileInfo::RemoveDetonatorProjectiles();
-                // Swallowing the press means the game's own fire handling never runs, so
-                // the spent detonator is never taken off CJ and he can keep clicking it.
-                // The CLEO this was modelled on has the same problem and ends with
-                // "0555: remove_weapon 40" for exactly this reason.
                 ped->ClearWeapon((eWeaponType)DETONATOR_TYPE);
                 detFireAt = 0;
-                if (debugLog) DetLog("BOOM", 0, 0, 0, NULL);
             }
             detonatorFiring = true;
             return;
@@ -510,13 +493,11 @@ public:
 
         if (fire && !detonatorFiring && type == DETONATOR_TYPE && !ped->bInVehicle) {
             pad->NewState.ButtonCircle = 0; // the game never sees this press
-            RpClump* clump = (RpClump*)ped->m_pRwObject;
-            CAnimBlendAssociation* a = clump
-                ? CAnimManager::BlendAnimation(clump, ANIM_GROUP_DEFAULT,
-                    ANIM_DEFAULT_BOMBER, BOMBER_BLEND)
-                : NULL;
-            detFireAt = CTimer::m_snTimeInMilliseconds + (unsigned int)(detDelayMs > 0 ? detDelayMs : 0);
-            if (debugLog) DetLog("PRESS", type, detDelayMs, 1, (void*)a);
+            if (RpClump* clump = (RpClump*)ped->m_pRwObject)
+                CAnimManager::BlendAnimation(clump, ANIM_GROUP_DEFAULT,
+                    ANIM_DEFAULT_BOMBER, BOMBER_BLEND);
+            detFireAt = CTimer::m_snTimeInMilliseconds
+                + (unsigned int)(detDelayMs > 0 ? detDelayMs : 0);
         }
         detonatorFiring = fire;
     }
@@ -883,7 +864,6 @@ bool LeedsMoveset::debugLog = false;
 int LeedsMoveset::logTimer = 0;
 int LeedsMoveset::pedLogTimer = 0;
 int LeedsMoveset::jogLogTimer = 0;
-int LeedsMoveset::detLogTimer = 0;
 std::vector<unsigned> LeedsMoveset::nearSig;
 bool LeedsMoveset::detonatorAnim = false;
 bool LeedsMoveset::detonatorFiring = false;

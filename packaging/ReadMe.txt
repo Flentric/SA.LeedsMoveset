@@ -24,6 +24,10 @@ configurable, including fastman92 add-on weapons. It also absorbs
 - Settings reload live while you play - edit the INI and it applies.
 - AI Weapon Walkstyles (optional): peds carry rifles and rocket launchers
   properly instead of holding them one-handed.
+- Fixed: with AIStoriesSprintingCombo on, peds took the whole player
+  walkstyle and so walked, sprinted and idled like CJ. The jog now
+  replaces only a ped's running animation - it keeps the walk, sprint
+  and idle of the walkstyle it spawned with.
 - Fixed: the mod was reading each weapon's model id and weapon.dat slot
   from the wrong entry, which put the sniper, rocket launcher and some
   melee weapons on the wrong walkstyle. Add-on weapons were hit hardest.
@@ -101,10 +105,18 @@ The lists live in [AIWalkstyles] and take the same TYPE or MODEL ids:
   JogWeapons           - peds only: force the one-handed jog on these,
                          without turning the whole combo on.
   IgnoreWeapons        - peds only: leave the ped's own walkstyle alone.
+  JogPedTypes          - which peds may jog at all. EMPTY (the default)
+                         means every ped, so set it if you only want,
+                         say, cops and gangs jogging and ordinary
+                         civilians running normally. Gates the jog only,
+                         never the rifle or rocket carry styles.
 
 Other options:
   AIStoriesSprintingCombo  - peds also use the one-handed jog for the
-                             weapons in [JogWeapons]. Off by default.
+                             weapons in [JogWeapons]. Only their running
+                             animation changes. Use JogPedTypes above to
+                             choose which peds it applies to. Off by
+                             default.
   AIGroupSprintFix         - peds in your group sprint from their own
                              walkstyle instead of the plain civilian
                              sprint the game forces. Off by default.

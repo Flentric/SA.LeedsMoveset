@@ -168,4 +168,6 @@ modloader folder).
 - Animations                        - SlingShot753
 - "eASIer" memory patcher (absorbed into this ASI) - HackMan128
 - "AI Walkstyles Fix" (absorbed into this ASI) - H-G
+- Detonator animation timing (approach from the "Unused
+  Detonator" CLEO)                    - Cleomodlar
 - ASI conversion + fastman92 add-on weapon support - this edition

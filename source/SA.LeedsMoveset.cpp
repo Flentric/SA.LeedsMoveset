@@ -13,6 +13,10 @@
 #include "CWeaponModelInfo.h"
 #include "CAnimBlendAssociation.h"
 #include "CAnimBlendStaticAssociation.h"
+#include "CPedIntelligence.h"
+#include "CPad.h"
+#include "CTimer.h"
+#include "CProjectileInfo.h"
 #include "eStats.h"
 #include <windows.h>
 #include <string>
@@ -46,6 +50,26 @@ static bool IsMoveAnimGroup(int g) { return (g >= 54 && g <= 71) || g >= 118; }
 // idle_hbhb, the look-around fidget - it sits at two ids, which is why it reads as twice
 static const int IDLE_HBHB_FIRST = 8;
 static const int IDLE_HBHB_LAST = 9;
+
+// surfinfo.dat marks some surfaces "can't sprint on" and SurfaceInfos_c::CantSprintOn
+// (thiscall, ecx = g_surfaceInfos) just reports bit 28 of that surface's flags. Both of
+// its callers use it to choose between the run and sprint anims - 0x688609 in the player
+// on-foot task and 0x66D94B on the ped path - so making it return 0 allows sprinting on
+// every surface. Doing it here rather than in surfinfo.dat leaves the data file alone,
+// which matters because every other mod wants to edit it too.
+static const uintptr_t CANT_SPRINT_ON = 0x55E870;
+static const unsigned char CANT_SPRINT_ORIG[5] = { 0x8B, 0x44, 0x24, 0x04, 0x8D }; // mov eax,[esp+4] ...
+static const unsigned char CANT_SPRINT_OFF[5] = { 0x31, 0xC0, 0xC2, 0x04, 0x00 };  // xor eax,eax ; ret 4
+
+// "bomber" is group 0 anim 48 and it is still sitting in ped.ifp, but nothing plays it -
+// there is not one BlendAnimation call for it anywhere in the exe, and the detonator's
+// weapon.dat anim group is "null", so pressing the detonator animates nothing at all.
+// Rockstar cut the code, not just the data, so restoring it means blending it ourselves.
+static const int DETONATOR_TYPE = 40;
+static const float BOMBER_BLEND = 4.0f;
+// CPad::UpdatePads refreshes the pad; this is the call the game makes each frame, before
+// anything reads the buttons. Redirecting it is how we get in front of the fire press.
+static const uintptr_t UPDATE_PADS_CALL = 0x53BEE6;
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -123,6 +147,7 @@ public:
     static std::set<int> aiJogWeapons;   // ped-only jog, independent of the combo
     static std::set<int> aiIgnoreWeapons; // ped-only: leave the ped's own walkstyle alone
     static std::set<int> aiJogPedTypes;   // ped types allowed to jog; empty = all
+    static std::set<int> aiIgnorePedTypes; // ped types the mod never touches
     static bool playerWalkstyles; // [PlayerWalkstyles], its own switch
     static bool aiWalkstyles;
     static bool aiCombo;
@@ -133,7 +158,16 @@ public:
     static int logTimer;
     static int pedLogTimer;
     static int jogLogTimer;
+    static int detLogTimer;
     static std::vector<unsigned> nearSig;
+    static bool detonatorAnim;
+    static bool detonatorFiring;
+    static int detLastWeapon;
+    static int detDelayMs;
+    static unsigned int detFireAt;
+    static bool unarmedListed; // does any list actually name weapon 0 / slot 0
+    static bool sprintAnywhere;
+    static bool sprintPatched;
     static bool groupSprintPatched;
     static bool noFat;
     static bool noMuscle;
@@ -143,6 +177,7 @@ public:
     static std::string iniPath;
     static std::string iniSection;
     static int reloadTimer;
+    static FILETIME iniStamp;
 
     static std::string AsiFolder() {
         char path[MAX_PATH] = { 0 };
@@ -184,6 +219,18 @@ public:
             iniSection = OLD_NAME;
     }
 
+    // LoadConfig reads ~25 keys straight off disk, which is the heaviest thing here.
+    // Live editing still works, it just costs one attribute check instead of 25 reads
+    // on every frame that comes round.
+    static bool IniChanged() {
+        WIN32_FILE_ATTRIBUTE_DATA fad;
+        if (!GetFileAttributesExA(iniPath.c_str(), GetFileExInfoStandard, &fad)) return false;
+        if (fad.ftLastWriteTime.dwLowDateTime == iniStamp.dwLowDateTime
+            && fad.ftLastWriteTime.dwHighDateTime == iniStamp.dwHighDateTime) return false;
+        iniStamp = fad.ftLastWriteTime;
+        return true;
+    }
+
     static void LoadConfig() {
         const char* f = iniPath.c_str();
         noFat = GetPrivateProfileIntA(iniSection.c_str(), "NoFat1Armed", 0, f) != 0;
@@ -218,6 +265,9 @@ public:
         ParseIds(buf, pcHeavyWeapons);
 
         playerWalkstyles = GetPrivateProfileIntA(iniSection.c_str(), "PlayerWeaponWalkstyles", 0, f) != 0;
+        sprintAnywhere = GetPrivateProfileIntA(iniSection.c_str(), "SprintOnAnySurface", 0, f) != 0;
+        detonatorAnim = GetPrivateProfileIntA(iniSection.c_str(), "DetonatorAnimation", 0, f) != 0;
+        detDelayMs = GetPrivateProfileIntA(iniSection.c_str(), "DetonatorAnimationDelay", 300, f);
         aiWalkstyles = GetPrivateProfileIntA(iniSection.c_str(), "AIWeaponWalkstyles", 0, f) != 0;
         aiCombo = GetPrivateProfileIntA(iniSection.c_str(), "AIStoriesSprintingCombo", 0, f) != 0;
         aiGroupSprint = GetPrivateProfileIntA(iniSection.c_str(), "AIGroupSprintFix", 0, f) != 0;
@@ -248,6 +298,18 @@ public:
 
         GetPrivateProfileStringA("AIWalkstyles", "JogPedTypes", "6,7,8,9,10,11,12,13,14,15,16", buf, sizeof(buf), f);
         ParseIds(buf, aiJogPedTypes);
+
+        GetPrivateProfileStringA("AIWalkstyles", "IgnorePedTypes", "", buf, sizeof(buf), f);
+        ParseIds(buf, aiIgnorePedTypes);
+
+        // ProcessPeds skips empty-handed peds outright, which is what nearly everyone
+        // wants and saves the whole decision chain for most of the pool. Listing weapon
+        // type 0 (or the unarmed slot) is a real way to ask for unarmed peds to jog
+        // though, so work out once whether anything actually does.
+        unarmedListed = jogWeapons.count(0) || noJogWeapons.count(0) || fireExtWeapons.count(0)
+            || aiJogWeapons.count(0) || aiBatWeapons.count(0) || aiRocketWeapons.count(0)
+            || aiRifleWeapons.count(0) || aiHeavyWeapons.count(0) || aiIgnoreWeapons.count(0)
+            || jogSlots.count(0) || aiRifleSlots.count(0);
     }
 
     static void ApplyAnimPatches() {
@@ -359,13 +421,6 @@ public:
             CVector d = ped->GetPosition() - pp;
             if (d.x * d.x + d.y * d.y + d.z * d.z > 400.0f) continue;
 
-            // only groups above the movement ones are worth reporting
-            bool interesting = false;
-            for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
-                 a; a = RpAnimBlendGetNextAssociation(a))
-                if (a->m_nAnimGroup > 0 && a->m_nAnimGroup < 54) { interesting = true; break; }
-            if (!interesting) continue;
-
             unsigned sig = 0;
             for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
                  a; a = RpAnimBlendGetNextAssociation(a))
@@ -375,8 +430,22 @@ public:
             nearSig[i] = sig;
 
             if (!f) { f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a"); if (!f) return; }
-            fprintf(f, "near type=%d wep=%d anims:", ped->m_nPedType,
-                (int)ped->GetWeapon()->m_eWeaponType);
+            // what the attached weapon object actually IS - the same read LogPlayer does.
+            // miType 5 is a weapon model, anything else means the pointer is holding
+            // something that is not a weapon (a carried prop, say)
+            int miType = -1, miWeapon = -1;
+            if (ped->m_pWeaponObject) {
+                CBaseModelInfo* mi = (CBaseModelInfo*)((MiFromRwObject_t)MODELINFO_FROM_RWOBJECT)(ped->m_pWeaponObject);
+                if (mi) {
+                    miType = (int)mi->GetModelType();
+                    if (miType == MODEL_INFO_WEAPON) miWeapon = (int)((CWeaponModelInfo*)mi)->m_weaponInfo;
+                }
+            }
+            fprintf(f, "near type=%d wep=%d slot=%d group=%d wobj=%s miType=%d miWep=%d anims:",
+                ped->m_nPedType, (int)ped->GetWeapon()->m_eWeaponType,
+                (int)ped->m_nSelectedWepSlot,
+                *(int*)((uintptr_t)ped + WALK_GROUP_OFFSET),
+                ped->m_pWeaponObject ? "yes" : "NULL", miType, miWeapon);
             for (CAnimBlendAssociation* a = RpAnimBlendClumpGetFirstAssociation((RpClump*)ped->m_pRwObject);
                  a; a = RpAnimBlendGetNextAssociation(a))
                 fprintf(f, " %d/%d(%.2f)", (int)a->m_nAnimGroup, (int)a->m_nAnimId, a->m_fBlendAmount);
@@ -384,6 +453,72 @@ public:
             shown++;
         }
         if (f) fclose(f);
+    }
+
+    static void SetSprintPatched(bool on) {
+        if (on == sprintPatched) return;
+        patch::SetRaw(CANT_SPRINT_ON, (void*)(on ? CANT_SPRINT_OFF : CANT_SPRINT_ORIG), 5);
+        sprintPatched = on;
+    }
+
+    // Play "bomber" when the detonator is pressed. Edge-triggered on the fire button so
+    // it fires once per press rather than restarting every frame the button is held.
+    static void DetLog(const char* what, int type, int prev, int btn, void* assoc) {
+        FILE* f = fopen((AsiFolder() + "SA.LeedsMoveset.log").c_str(), "a");
+        if (!f) return;
+        fprintf(f, "det %s wep=%d prev=%d btn=%d assoc=%p\n", what, type, prev, btn, assoc);
+        fclose(f);
+    }
+
+    // Runs straight after CPad::UpdatePads, so the pad is fresh and nothing has read it
+    // yet. Swallow the press so the game never detonates, start "bomber", then set the
+    // charges off ourselves at the point in the animation where CJ's hand comes down.
+    //
+    // The timing approach is Cleomodlar's: their "Unused Detonator" CLEO showed that the
+    // way to sync this is to stop waiting on the game and drive both halves yourself -
+    // animate, wait, then detonate through the same call opcode 09D9 makes
+    // (CProjectileInfo::RemoveDetonatorProjectiles). A script gets in front of the fire
+    // for free because scripts run before the weapon is processed; from an ASI it takes
+    // the pad redirect above. Clearing the spent detonator afterwards is theirs too - it
+    // is the "0555: remove_weapon 40" their script ends on, and it is part of the same
+    // fix rather than a separate option.
+    static void ProcessDetonator() {
+        CPlayerPed* ped = FindPlayerPed();
+        CPad* pad = CPad::GetPad(0);
+        if (!ped || !pad) { detFireAt = 0; return; }
+
+        // mid-animation: keep the button down-pressed from reaching the game, and fire
+        // the charges when the delay is up
+        if (detFireAt) {
+            pad->NewState.ButtonCircle = 0;
+            if (CTimer::m_snTimeInMilliseconds >= detFireAt) {
+                CProjectileInfo::RemoveDetonatorProjectiles();
+                // Swallowing the press means the game's own fire handling never runs, so
+                // the spent detonator is never taken off CJ and he can keep clicking it.
+                // The CLEO this was modelled on has the same problem and ends with
+                // "0555: remove_weapon 40" for exactly this reason.
+                ped->ClearWeapon((eWeaponType)DETONATOR_TYPE);
+                detFireAt = 0;
+                if (debugLog) DetLog("BOOM", 0, 0, 0, NULL);
+            }
+            detonatorFiring = true;
+            return;
+        }
+
+        int type = (int)ped->GetWeapon()->m_eWeaponType;
+        bool fire = pad->NewState.ButtonCircle != 0;
+
+        if (fire && !detonatorFiring && type == DETONATOR_TYPE && !ped->bInVehicle) {
+            pad->NewState.ButtonCircle = 0; // the game never sees this press
+            RpClump* clump = (RpClump*)ped->m_pRwObject;
+            CAnimBlendAssociation* a = clump
+                ? CAnimManager::BlendAnimation(clump, ANIM_GROUP_DEFAULT,
+                    ANIM_DEFAULT_BOMBER, BOMBER_BLEND)
+                : NULL;
+            detFireAt = CTimer::m_snTimeInMilliseconds + (unsigned int)(detDelayMs > 0 ? detDelayMs : 0);
+            if (debugLog) DetLog("PRESS", type, detDelayMs, 1, (void*)a);
+        }
+        detonatorFiring = fire;
     }
 
     // let peds in the player's group sprint from their own walkstyle group
@@ -432,8 +567,12 @@ public:
     }
 
     static void Process() {
-        if (--reloadTimer <= 0) { LoadConfig(); reloadTimer = 100; }
+        if (--reloadTimer <= 0) {
+            reloadTimer = 100;
+            if (IniChanged()) LoadConfig();
+        }
         ProcessPlayer();
+        SetSprintPatched(sprintAnywhere);
         SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
         if (aiWalkstyles) ProcessPeds();
         else ReleasePeds();
@@ -446,6 +585,16 @@ public:
         if (!ped) return;
         // bInVehicle, not m_pVehicle (that lingers after you exit a car)
         if (ped->bInVehicle) { SetPatched(false); return; }
+
+        // The jetpack has a walkstyle of its own - group 70 "playerjetpack", whose idle is
+        // Jetpack_Idle, the pose where CJ holds the handles. Suppressing the game's write
+        // at 0x609A4E and forcing a weapon group takes that away and leaves his arms at
+        // his sides. Back off entirely while the jetpack task is running, the same as in
+        // a vehicle, and the game puts him back on group 70 itself.
+        if (ped->m_pIntelligence && ped->m_pIntelligence->GetTaskJetPack()) {
+            SetPatched(false);
+            return;
+        }
 
         int type = (int)ped->GetWeapon()->m_eWeaponType;
         int model = -1, slot = -1;
@@ -628,7 +777,30 @@ public:
             if (rec.id != id) { rec.id = id; rec.active = false; rec.jogging = false; }
             if (ped->m_pPlayerData) { rec.active = false; rec.jogging = false; continue; }
 
+            // Most peds are empty-handed and get nothing from the lists below, so bail
+            // before the ped-type set, the task lookup and the whole decision chain -
+            // that is most of what this loop would otherwise cost. Only skipped when a
+            // list really does name weapon 0 or the unarmed slot.
             int type = (int)ped->GetWeapon()->m_eWeaponType;
+            if (type == 0 && !unarmedListed) { ReleasePed(rec, ped); continue; }
+
+            // ped types to leave completely alone, for scripted peds that should keep
+            // whatever the mission gave them
+            if (aiIgnorePedTypes.count(ped->m_nPedType)) { ReleasePed(rec, ped); continue; }
+
+            // A ped carrying an object has both hands on the prop, and the weapon it is
+            // still "holding" is not drawn with it - the triads in "A Home in the Hills"
+            // carry a para_pack and their M4 never appears, so the rifle carry stood them
+            // in idle_armed for the whole plane ride. CPedIntelligence::GetTaskHold finds the carry task
+            // (TASK_SIMPLE_HOLD_ENTITY, 0x133) in the secondary slot or the primary tree.
+            // This lasts exactly as long as the carry does: the script drops the prop
+            // before they jump, the task ends, and the weapon walkstyle comes straight
+            // back for the fight on the ground.
+            if (ped->m_pIntelligence && ped->m_pIntelligence->GetTaskHold(false)) {
+                ReleasePed(rec, ped);
+                continue;
+            }
+
             int model = -1, slot = -1;
             if (CWeaponInfo* wi = CWeaponInfo::GetWeaponInfo((eWeaponType)type, WEAPON_SKILL_STD)) {
                 model = wi->m_nModelId;
@@ -699,6 +871,7 @@ std::set<int> LeedsMoveset::aiRifleSlots;
 std::set<int> LeedsMoveset::aiJogWeapons;
 std::set<int> LeedsMoveset::aiIgnoreWeapons;
 std::set<int> LeedsMoveset::aiJogPedTypes;
+std::set<int> LeedsMoveset::aiIgnorePedTypes;
 std::vector<PedWalkstyle> LeedsMoveset::pedWalk;
 bool LeedsMoveset::playerWalkstyles = false;
 bool LeedsMoveset::aiWalkstyles = false;
@@ -710,7 +883,16 @@ bool LeedsMoveset::debugLog = false;
 int LeedsMoveset::logTimer = 0;
 int LeedsMoveset::pedLogTimer = 0;
 int LeedsMoveset::jogLogTimer = 0;
+int LeedsMoveset::detLogTimer = 0;
 std::vector<unsigned> LeedsMoveset::nearSig;
+bool LeedsMoveset::detonatorAnim = false;
+bool LeedsMoveset::detonatorFiring = false;
+int LeedsMoveset::detLastWeapon = 0;
+int LeedsMoveset::detDelayMs = 300;
+unsigned int LeedsMoveset::detFireAt = 0;
+bool LeedsMoveset::unarmedListed = false;
+bool LeedsMoveset::sprintAnywhere = false;
+bool LeedsMoveset::sprintPatched = false;
 bool LeedsMoveset::groupSprintPatched = false;
 bool LeedsMoveset::noFat = false;
 bool LeedsMoveset::noMuscle = false;
@@ -720,6 +902,12 @@ bool LeedsMoveset::patched = false;
 std::string LeedsMoveset::iniPath;
 std::string LeedsMoveset::iniSection;
 int LeedsMoveset::reloadTimer = 0;
+FILETIME LeedsMoveset::iniStamp = { 0, 0 };
+
+static void __cdecl HookedUpdatePads() {
+    ((void(__cdecl*)())0x541DD0)();
+    if (LeedsMoveset::detonatorAnim) LeedsMoveset::ProcessDetonator();
+}
 
 class LeedsMovesetPlugin {
 public:
@@ -727,6 +915,7 @@ public:
         LeedsMoveset::ResolveIni();
         LeedsMoveset::LoadConfig();
         LeedsMoveset::ApplyAnimPatches();
+        patch::RedirectCall(UPDATE_PADS_CALL, HookedUpdatePads);
         Events::gameProcessEvent += [] { LeedsMoveset::Process(); };
     }
 } leedsMovesetPlugin;

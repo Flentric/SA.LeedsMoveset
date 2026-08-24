@@ -47,6 +47,14 @@ configurable, including fastman92 add-on weapons. It also absorbs
   SkyUI, whose pause menu lost its Brief, Map and Stats tabs. It now
   chains onto the existing hook instead, and only installs one at all
   when the detonator animation is turned on.
+- Updated: the "bomber" detonator animation itself has been revised.
+  Both ped.ifp and the CustomPed.ifp for modified-IFP users are new in
+  this version - reinstall whichever of the two you use, or you will
+  keep the old animation.
+- Fixed: the detonator animation no longer plays while jumping or
+  falling. CJ plants his feet to work the detonator, so in mid-air it
+  read as a float. Pressing fire up there still blows the charges, it
+  just does it without the animation.
 
 
 ------------------------------------------------------------------------

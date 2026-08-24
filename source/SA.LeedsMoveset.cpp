@@ -569,8 +569,13 @@ public:
 
         int type = (int)ped->GetWeapon()->m_eWeaponType;
         bool fire = pad->NewState.ButtonCircle != 0;
+        // the animation has CJ plant his feet and work the detonator, so in mid-air it
+        // reads as a float. Leave a jumping or falling press to the game - it still blows
+        // the charges the way it always has, just without the animation. bIsStanding on
+        // its own covers the launch frames, before bIsInTheAir is set, and ledge climbs.
+        bool grounded = ped->bIsStanding && !ped->bIsInTheAir;
 
-        if (fire && !detonatorFiring && type == DETONATOR_TYPE && !ped->bInVehicle) {
+        if (fire && !detonatorFiring && type == DETONATOR_TYPE && !ped->bInVehicle && grounded) {
             pad->NewState.ButtonCircle = 0; // the game never sees this press
             if (RpClump* clump = (RpClump*)ped->m_pRwObject)
                 CAnimManager::BlendAnimation(clump, ANIM_GROUP_DEFAULT,

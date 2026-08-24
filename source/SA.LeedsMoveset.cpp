@@ -69,7 +69,14 @@ static const int DETONATOR_TYPE = 40;
 static const float BOMBER_BLEND = 4.0f;
 // CPad::UpdatePads refreshes the pad; this is the call the game makes each frame, before
 // anything reads the buttons. Redirecting it is how we get in front of the fire press.
+// SkyUI and DebugMenu redirect the same call and this mod loads after both, so read what
+// the call points at and chain onto it - jumping straight to CPad::UpdatePads would drop
+// their hook and take their menus with it. The hook only goes in if the detonator is on.
 static const uintptr_t UPDATE_PADS_CALL = 0x53BEE6;
+static const uintptr_t UPDATE_PADS = 0x541DD0;
+typedef void(__cdecl* UpdatePads_t)();
+static UpdatePads_t nextUpdatePads = NULL;
+static void HookUpdatePads();
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -552,6 +559,7 @@ public:
             reloadTimer = 100;
             if (IniChanged()) LoadConfig();
         }
+        if (detonatorAnim) HookUpdatePads();
         ProcessPlayer();
         SetSprintPatched(sprintAnywhere);
         SetGroupSprintPatched(aiWalkstyles && aiGroupSprint);
@@ -885,8 +893,24 @@ int LeedsMoveset::reloadTimer = 0;
 FILETIME LeedsMoveset::iniStamp = { 0, 0 };
 
 static void __cdecl HookedUpdatePads() {
-    ((void(__cdecl*)())0x541DD0)();
+    nextUpdatePads();
     if (LeedsMoveset::detonatorAnim) LeedsMoveset::ProcessDetonator();
+}
+
+// goes in the first time the detonator is switched on, and is re-armed if the site ever
+// reads as the stock call again. SkyUI hooks the same call with a one-shot initialiser and
+// puts the original call back once it has run, which takes our redirect with it - and its
+// own routine is inert by then, so the pointer we chained onto must be dropped too.
+// A restore is the ONLY case worth re-arming for: any other target means a mod is chained
+// there, and grabbing that would put the two of us in a loop.
+static void HookUpdatePads() {
+    const unsigned char* site = (const unsigned char*)UPDATE_PADS_CALL;
+    if (site[0] != 0xE8) return;
+    UpdatePads_t target = (UpdatePads_t)(UPDATE_PADS_CALL + 5 + *(const int*)(site + 1));
+    if (target == HookedUpdatePads) return;
+    if (nextUpdatePads && target != (UpdatePads_t)UPDATE_PADS) return;
+    nextUpdatePads = target;
+    patch::RedirectCall(UPDATE_PADS_CALL, HookedUpdatePads);
 }
 
 class LeedsMovesetPlugin {
@@ -895,7 +919,7 @@ public:
         LeedsMoveset::ResolveIni();
         LeedsMoveset::LoadConfig();
         LeedsMoveset::ApplyAnimPatches();
-        patch::RedirectCall(UPDATE_PADS_CALL, HookedUpdatePads);
+        if (LeedsMoveset::detonatorAnim) HookUpdatePads();
         Events::gameProcessEvent += [] { LeedsMoveset::Process(); };
     }
 } leedsMovesetPlugin;

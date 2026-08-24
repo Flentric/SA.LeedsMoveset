@@ -41,6 +41,12 @@ configurable, including fastman92 add-on weapons. It also absorbs
 - Fixed: the mod was reading each weapon's model id and weapon.dat slot
   from the wrong entry, which put the sniper, rocket launcher and some
   melee weapons on the wrong walkstyle. Add-on weapons were hit hardest.
+- Fixed: the mod redirected a shared game function - the per-frame pad
+  update - without preserving whatever was already hooked there, so any
+  other plugin using that same call was silently dropped. Most visibly
+  SkyUI, whose pause menu lost its Brief, Map and Stats tabs. It now
+  chains onto the existing hook instead, and only installs one at all
+  when the detonator animation is turned on.
 
 
 ------------------------------------------------------------------------

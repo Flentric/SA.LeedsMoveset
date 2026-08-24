@@ -12,3 +12,6 @@ obj/
 
 # Packaged release output (rebuilt from packaging/ + bin/)
 release/
+
+# Local rollback copies
+backup/

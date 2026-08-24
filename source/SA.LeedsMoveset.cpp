@@ -23,6 +23,13 @@
 #include <set>
 #include <vector>
 #include <cstdio>
+#include <cstdint>
+// aap's debugmenu, the menu SilentPatch and SkyGfx publish their settings into. The header
+// is his, verbatim, under the MIT licence in debugmenu_LICENSE.txt; it resolves the menu at
+// runtime and does nothing at all when debugmenu.dll is not installed.
+#include "debugmenu_public.h"
+
+DebugMenuAPI gDebugMenuAPI;
 
 using namespace plugin;
 
@@ -77,6 +84,12 @@ static const uintptr_t UPDATE_PADS = 0x541DD0;
 typedef void(__cdecl* UpdatePads_t)();
 static UpdatePads_t nextUpdatePads = NULL;
 static void HookUpdatePads();
+
+// debugmenu page paths; '|' is how it nests them
+static const char* MENU = "Leeds Moveset";
+static const char* MENU_PLAYER = "Leeds Moveset|Player";
+static const char* MENU_PEDS = "Leeds Moveset|Peds";
+static const char* MENU_DET = "Leeds Moveset|Detonator";
 
 // push 54 in CPed::SetMoveAnim's sprint case - hardcoded for peds in the player's group
 static const uintptr_t GROUP_SPRINT_ADDR = 0x5E4BFF;
@@ -316,6 +329,65 @@ public:
             || aiJogWeapons.count(0) || aiBatWeapons.count(0) || aiRocketWeapons.count(0)
             || aiRifleWeapons.count(0) || aiHeavyWeapons.count(0) || aiIgnoreWeapons.count(0)
             || jogSlots.count(0) || aiRifleSlots.count(0);
+    }
+
+    static void WriteIniInt(const char* key, int value) {
+        char buf[16];
+        sprintf(buf, "%d", value);
+        WritePrivateProfileStringA(iniSection.c_str(), key, buf, iniPath.c_str());
+    }
+
+    // the switches only - the weapon lists stay exactly as they were written by hand
+    static void SaveConfig() {
+        WriteIniInt("NoFat1Armed", noFat);
+        WriteIniInt("NoMuscle1Armed", noMuscle);
+        WriteIniInt("NoSkinny1Armed", noSkinny);
+        WriteIniInt("FireExtinguisherWalkstyleFix", fireExtFix);
+        WriteIniInt("PlayerWeaponWalkstyles", playerWalkstyles);
+        WriteIniInt("SprintOnAnySurface", sprintAnywhere);
+        WriteIniInt("DetonatorAnimation", detonatorAnim);
+        WriteIniInt("DetonatorAnimationDelay", detDelayMs);
+        WriteIniInt("AIWeaponWalkstyles", aiWalkstyles);
+        WriteIniInt("AIStoriesSprintingCombo", aiCombo);
+        WriteIniInt("AIGroupSprintFix", aiGroupSprint);
+        WriteIniInt("NoArmedHandSignals", noArmedHandSignals);
+        WriteIniInt("NoGangTaunts", noGangTaunts);
+        WriteIniInt("DebugLog", debugLog);
+        IniChanged(); // take the stamp for our own write so Process does not read it back
+    }
+
+    static void CmdReloadIni() { LoadConfig(); }
+    static void CmdSaveIni() { SaveConfig(); }
+
+    // Every setting here is already a plain static that Process reads each frame, so the
+    // menu can be handed the addresses directly - a toggle lands exactly like an INI edit
+    // does, no restart, no trigger functions. Changes are live only until Save writes them
+    // back. The weapon lists are deliberately absent: a debug menu is no place to type a
+    // list of weapon ids, and Reload INI picks them up once they have been edited.
+    static void InitDebugMenu() {
+        static bool registered = false;
+        if (registered || !DebugMenuLoad()) return;
+        registered = true;
+
+        DebugMenuAddCmd(MENU, "Reload INI", CmdReloadIni);
+        DebugMenuAddCmd(MENU, "Save settings to INI", CmdSaveIni);
+        DebugMenuAddVarBool8(MENU, "Sprint on any surface", (int8_t*)&sprintAnywhere, NULL);
+        DebugMenuAddVarBool8(MENU, "Debug log", (int8_t*)&debugLog, NULL);
+
+        DebugMenuAddVarBool8(MENU_PLAYER, "Weapon carry styles", (int8_t*)&playerWalkstyles, NULL);
+        DebugMenuAddVarBool8(MENU_PLAYER, "Fire extinguisher fix", (int8_t*)&fireExtFix, NULL);
+        DebugMenuAddVarBool8(MENU_PLAYER, "No fat jog", (int8_t*)&noFat, NULL);
+        DebugMenuAddVarBool8(MENU_PLAYER, "No muscular jog", (int8_t*)&noMuscle, NULL);
+        DebugMenuAddVarBool8(MENU_PLAYER, "No skinny jog", (int8_t*)&noSkinny, NULL);
+
+        DebugMenuAddVarBool8(MENU_PEDS, "Weapon walkstyles", (int8_t*)&aiWalkstyles, NULL);
+        DebugMenuAddVarBool8(MENU_PEDS, "Stories Sprinting combo", (int8_t*)&aiCombo, NULL);
+        DebugMenuAddVarBool8(MENU_PEDS, "Group sprint fix", (int8_t*)&aiGroupSprint, NULL);
+        DebugMenuAddVarBool8(MENU_PEDS, "No armed hand signals", (int8_t*)&noArmedHandSignals, NULL);
+        DebugMenuAddVarBool8(MENU_PEDS, "No gang taunts", (int8_t*)&noGangTaunts, NULL);
+
+        DebugMenuAddVarBool8(MENU_DET, "Animation", (int8_t*)&detonatorAnim, NULL);
+        DebugMenuAddVar(MENU_DET, "Delay (ms)", &detDelayMs, NULL, 50, 0, 2000, NULL);
     }
 
     static void ApplyAnimPatches() {
@@ -921,5 +993,8 @@ public:
         LeedsMoveset::ApplyAnimPatches();
         if (LeedsMoveset::detonatorAnim) HookUpdatePads();
         Events::gameProcessEvent += [] { LeedsMoveset::Process(); };
+        // after the game is up, so debugmenu.dll is loaded on its own schedule and not
+        // dragged in early from under the loader lock
+        Events::initGameEvent += [] { LeedsMoveset::InitDebugMenu(); };
     }
 } leedsMovesetPlugin;

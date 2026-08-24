@@ -171,6 +171,30 @@ Other options:
 
 
 ------------------------------------------------------------------------
+ Debug Menu support (optional)
+------------------------------------------------------------------------
+
+If you have aap's debugmenu installed (debugmenu.dll next to the exe -
+the same menu SilentPatch and SkyGfx use), every on/off setting in this
+mod shows up in it under "Leeds Moveset", split into Player, Peds and
+Detonator pages. Toggling one takes effect immediately, exactly as
+editing the INI does.
+
+Two commands sit at the top of the page:
+
+- Reload INI - re-reads the file. Use this after editing the weapon
+  lists by hand; those are not in the menu, because a debug menu is no
+  place to type a list of weapon ids.
+- Save settings to INI - writes the current on/off states back to your
+  INI so they survive a restart. Your comments and weapon lists are
+  left untouched.
+
+Menu changes are live only until you save them. Nothing here is
+required - without debugmenu installed the mod behaves exactly as
+before.
+
+
+------------------------------------------------------------------------
  If your ped.ifp / fat.ifp / muscular.ifp are already modified
 ------------------------------------------------------------------------
 
@@ -202,4 +226,5 @@ modloader folder).
 - "AI Walkstyles Fix" (absorbed into this ASI) - H-G
 - Detonator animation timing (approach from the "Unused
   Detonator" CLEO)                    - Cleomodlar
+- debugmenu, and its client header (MIT) - aap
 - ASI conversion + fastman92 add-on weapon support - this edition
